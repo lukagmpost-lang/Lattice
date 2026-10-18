@@ -255,7 +255,7 @@ def _chat_request(
             {"role": "user", "content": prompt},
         ],
         "temperature": temperature,
-        "max_completion_tokens": 4000,
+        "max_tokens": 900,
     }
     # gpt-oss models are reasoning models; low effort saves output budget
     if "gpt-oss" in settings["model"] or "gemini" in settings["model"].lower():
