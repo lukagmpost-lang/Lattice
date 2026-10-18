@@ -225,7 +225,7 @@ def _cache_store(run_id, question, history, answer):
         pass
 
 
-def converse(question, graph, messages, max_rounds=4, verbose=False, history=None):
+def converse(question, graph, messages, max_rounds=3, verbose=False, history=None):
     extras = _load_extras()
     prior = history if history is not None else []
     original_question = question
