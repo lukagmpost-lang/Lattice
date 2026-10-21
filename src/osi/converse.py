@@ -37,6 +37,16 @@ Objects available in your code:
 Allowed imports: networkx (as nx), math, statistics, collections, itertools,
 re, json, datetime.
 
+ADVANCED GRAPH ALGORITHMS (Use these when the user asks about Reddit data or complex structures):
+- nx.hits(g): Returns (hubs, authorities). Hubs are people who reply to authorities. Authorities are people who get replied to.
+- nx.core_number(g): Returns the k-core for each node. High k-core = part of the tight inner circle.
+- nx.edge_betweenness_centrality(g): Finds the specific edges (conversations) that bridge different communities.
+- nx.reciprocity(g): Measures if conversations are two-way (mutual replies) or one-way.
+- nx.constraint(g): Finds brokers who bridge structural holes between groups.
+- nx.pagerank(g): Standard influence.
+- nx.betweenness_centrality(g): Standard bridges.
+- nx.community.louvain_communities(g): Community detection.
+
 You work iteratively. On each turn, reply with a JSON object, nothing else:
 
 To run code:
