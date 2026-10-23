@@ -9,3 +9,5 @@
 
 # Ignore generated high-res images (use small versions or external links for README)
 *.png
+.env
+.env.*
