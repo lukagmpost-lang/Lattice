@@ -1,0 +1,1 @@
+{"directed": false, "multigraph": false, "graph": {}, "nodes": [{"id": "alice"}, {"id": "bob"}, {"id": "carol"}, {"id": "dave"}], "links": [{"weight": 2.0, "source": "alice", "target": "bob"}, {"weight": 3.0, "source": "alice", "target": "carol"}, {"weight": 1.0, "source": "alice", "target": "dave"}, {"weight": 1.0, "source": "bob", "target": "carol"}]}

@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/2950639/Desktop/OSI/Open-Source-Intelligence/src/osi/server.py", line 21, in <module>
+    from osi.ask import _execute
+  File "/Users/2950639/Desktop/OSI/Open-Source-Intelligence/src/osi/ask.py", line 12, in <module>
+    from osi.agent import context_brief, run_agent
+  File "/Users/2950639/Desktop/OSI/Open-Source-Intelligence/src/osi/agent.py", line 21, in <module>
+    from osi.answer import (
+  File "/Users/2950639/Desktop/OSI/Open-Source-Intelligence/src/osi/answer.py", line 22, in <module>
+    from osi.store import get_cached_answer, get_run, load_graph, put_cached_answer
+  File "/Users/2950639/Desktop/OSI/Open-Source-Intelligence/src/osi/store.py", line 183
+    graph_json_str = row[\"graph_json\"]
+                          ^
+SyntaxError: unexpected character after line continuation character

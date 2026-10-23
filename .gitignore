@@ -1,12 +1,11 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-data/
-.env
-*.log
-graph.json
-graph.html
-graph.png
-*.egg-info/
-facebook_combined.txt
-lib/
+# Ignore raw data
+*.tsv
+*.csv
+*.zip
+
+# Ignore cache and generated layouts
+*.npy
+*.pkl
+
+# Ignore generated high-res images (use small versions or external links for README)
+*.png

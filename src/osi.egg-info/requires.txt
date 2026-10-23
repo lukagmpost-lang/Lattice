@@ -1,0 +1,16 @@
+networkx
+
+[dev]
+pytest
+httpx
+
+[fast]
+igraph
+leidenalg
+numpy
+scipy
+
+[web]
+fastapi
+uvicorn
+python-multipart

@@ -1,0 +1,21 @@
+INFO:     Started server process [5039]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8004 (Press CTRL+C to quit)
+INFO:     127.0.0.1:62664 - "GET /api/runs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62666 - "POST /api/runs/import HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62671 - "GET /api/runs HTTP/1.1" 200 OK
+[api] ask: run_id=whatsapp-2d0c9fcb source=whatsapp nodes=3 edges=2
+[DEBUG] Request URL: https://api.groq.com/openai/v1/chat/completions
+[DEBUG] Request headers: {'Content-type': 'application/json', 'User-agent': 'osi/0.1', 'Authorization': 'Bearer gsk_zETY...'}
+[DEBUG] Request body (first 50 chars): {"model": "openai/gpt-oss-120b", "messages": [{"ro
+[DEBUG] Raw LLM output: 'The pagerank scores show that account\u202fAlice (0.48648582432442095) is far more central than the other two accounts, each with a score of 0.25675708783778944. With only three accounts and two connections, the data set is thin, so we won’t discuss any community structure or modularity. This pattern means that messages or information are most likely to pass through Alice before reaching Bob or Carol. For anyone using this WhatsApp network, Alice is the key hub you’ll want to monitor or engage with to ensure rapid communication.'
+[DEBUG] Request URL: https://api.groq.com/openai/v1/chat/completions
+[DEBUG] Request headers: {'Content-type': 'application/json', 'User-agent': 'osi/0.1', 'Authorization': 'Bearer gsk_zETY...'}
+[DEBUG] Request body (first 50 chars): {"model": "openai/gpt-oss-120b", "messages": [{"ro
+[DEBUG] Raw LLM output: 'The highest PageRank score is\u202f0.48648582432442095 for Alice, making her the most central account in the network. Bob and Carol each have a score of\u202f0.25675708783778944, tying them for the second‑most central positions. Because the graph contains only three nodes and two edges, the data is thin and we cannot report community structure or modularity. For anyone using this WhatsApp network, most communication will flow through Alice, with Bob and Carol also serving as key intermediaries.'
+INFO:     127.0.0.1:62673 - "POST /api/ask HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [5039]

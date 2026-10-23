@@ -231,6 +231,40 @@ details summary:hover{color:var(--ink)}
   </aside>
 
   <section id="main-panel">
+    
+    <div style="margin-bottom: 20px; padding: 15px; background: #f4f4f4; border: 1px solid #ddd; border-radius: 6px; display: flex; align-items: center; gap: 15px; font-family: monospace;">
+        <span style="font-weight: bold; font-size: 14px;">OR LOAD SUBREDDIT:</span>
+        <select id="subreddit-selector" style="padding: 6px; font-family: monospace; border: 1px solid #ccc; border-radius: 4px; width: 200px;">
+            <option value="AskReddit">r/AskReddit</option>
+            <option value="politics">r/politics</option>
+            <option value="worldnews">r/worldnews</option>
+            <option value="funny">r/funny</option>
+        </select>
+        <button onclick="loadSubreddit(event)" style="font-family: monospace; font-size: 14px; padding: 8px 16px; background: #000; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Load Subreddit</button>
+    </div>
+    <script>
+    async function loadSubreddit(e) {
+        const sub = document.getElementById('subreddit-selector').value;
+        const btn = e.target;
+        const origText = btn.innerText;
+        btn.innerText = 'Loading...';
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/reddit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({subreddit: sub, limit: 1000})
+            });
+            const data = await res.json();
+            if (data.status === 'error') throw new Error(data.message);
+            window.location.href = "/?run=" + data.run_id;
+        } catch (e) {
+            alert('Error: ' + e.message);
+            btn.innerText = origText;
+            btn.disabled = false;
+        }
+    }
+    </script>
     <div class="tabs">
       <button data-tab="chat" class="active">Chat</button>
       <button data-tab="graph">Graph</button>

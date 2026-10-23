@@ -533,3 +533,171 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+@app.get("/api/graph/png/{run_id}")
+async def get_graph_png(run_id: str):
+    import os
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    from fastapi.responses import FileResponse
+    from osi.store import get_run, load_graph
+
+    meta = get_run(run_id)
+    if not meta: return {"error": "Run not found"}
+    layer = (meta.get("config") or {}).get("layer")
+    g = load_graph(run_id, layer) if layer else None
+    if not g: return {"error": "Graph not found"}
+
+    # Keep largest connected component so the image is dense
+    g_undir = g.to_undirected()
+    largest_cc = max(nx.connected_components(g_undir), key=len)
+    G = g.subgraph(largest_cc).copy()
+
+    # Gephi-style layout (High repulsion, strong gravity)
+    pos = nx.spring_layout(G, k=10.0/max(1, len(G)**0.5), iterations=200, seed=42)
+
+    fig, ax = plt.subplots(figsize=(24, 24), facecolor='white')
+    ax.set_facecolor('white')
+    
+    # Draw faint edges
+    nx.draw_networkx_edges(G, pos, alpha=0.08, edge_color='black', width=0.5, ax=ax)
+
+    # Draw nodes colored by community
+    communities = list(nx.community.louvain_communities(G, seed=42))
+    node_comm = {node: i for i, c in enumerate(communities) for node in c}
+    PALETTE = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
+    node_colors = [PALETTE[node_comm.get(n, 0) % len(PALETTE)] for n in G.nodes()]
+    node_sizes = [max(5, min(30, G.nodes[n].get("message_count", 1) * 2)) for n in G.nodes()]
+    
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=node_sizes, linewidths=0, ax=ax)
+    ax.axis('off')
+
+    png_path = f"/tmp/lattice_graphs/{run_id}.png"
+    os.makedirs("/tmp/lattice_graphs", exist_ok=True)
+    plt.savefig(png_path, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0)
+    plt.close()
+
+    return FileResponse(png_path, media_type="image/png", filename=f"lattice_{run_id}.png")
+
+
+def get_graph_png(run_id: str):
+    import os
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    from fastapi.responses import FileResponse
+    from osi.store import get_run, load_graph
+
+    meta = get_run(run_id)
+    if not meta:
+        return {"error": "Run not found"}
+    layer = (meta.get("config") or {}).get("layer")
+    g = load_graph(run_id, layer) if layer else None
+    if not g:
+        return {"error": "Graph not found"}
+
+    g_undir = g.to_undirected()
+    largest_cc = max(nx.connected_components(g_undir), key=len)
+    G = g.subgraph(largest_cc).copy()
+
+    try:
+        from pyforceatlas2 import ForceAtlas2
+        fa2 = ForceAtlas2(
+            outbound_attraction_distribution=False,
+            edge_weight_influence=1.0,
+            lin_log_mode=True,
+            barnes_hut_optimize=True,
+            scaling_ratio=20.0,
+            strong_gravity_mode=True,
+            gravity=20.0,
+        )
+        pos = fa2.forceatlas2_networkx_layout(G, pos=None, iterations=100)
+    except Exception:
+        pos = nx.spring_layout(G, seed=42)
+
+    fig, ax = plt.subplots(figsize=(20, 20), facecolor='white')
+    ax.set_facecolor('white')
+    nx.draw_networkx_edges(G, pos, alpha=0.15, edge_color='gray', width=0.5, ax=ax)
+
+    communities = list(nx.community.louvain_communities(G, seed=42))
+    node_comm = {node: i for i, c in enumerate(communities) for node in c}
+    PALETTE = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
+    node_colors = [PALETTE[node_comm.get(n, 0) % len(PALETTE)] for n in G.nodes()]
+    node_sizes = [max(5, min(30, G.nodes[n].get("message_count", 1) * 2)) for n in G.nodes()]
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=node_sizes, linewidths=0, ax=ax)
+    ax.axis('off')
+
+    png_path = f"/tmp/lattice_graphs/{run_id}.png"
+    os.makedirs("/tmp/lattice_graphs", exist_ok=True)
+    plt.savefig(png_path, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0)
+    plt.close()
+
+    return FileResponse(png_path, media_type="image/png", filename=f"lattice_{run_id}.png")
+
+
+@app.post("/api/reddit")
+async def api_reddit(payload: dict):
+    from osi.loaders.reddit import load_subreddit
+    from osi.store import create_run, save_graph, _connection
+    subreddit = payload.get("subreddit", "AskReddit")
+    limit = payload.get("limit", 1000)
+    try:
+        g, meta = load_subreddit(subreddit, limit=limit)
+        
+        config = {"subreddit": subreddit, "limit": limit, "layer": "whatsapp"}
+        run_id = create_run("reddit", config)
+        save_graph(run_id, "default", g)
+        save_graph(run_id, "whatsapp", g)  # match the layer the endpoints look for
+        
+        return {"status": "ok", "run_id": run_id, "meta": meta}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/export/gexf/{run_id}")
+async def export_gexf(run_id: str):
+    import networkx as nx
+    import tempfile, os
+    from fastapi.responses import FileResponse
+    from osi.store import get_run, load_graph
+    meta = get_run(run_id)
+    if not meta: return {"error": "Run not found"}
+    layer = (meta.get("config") or {}).get("layer")
+    g = load_graph(run_id, layer) if layer else None
+    if not g: return {"error": "Graph not found"}
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".gexf")
+    nx.write_gexf(g, tmp.name)
+    return FileResponse(tmp.name, media_type="application/gexf+xml", filename=f"lattice_{run_id}.gexf")
+
+@app.get("/api/export/md/{run_id}")
+async def export_md(run_id: str):
+    import networkx as nx
+    from fastapi.responses import PlainTextResponse
+    from osi.store import get_run, load_graph
+    from osi.analysis import pagerank
+    meta = get_run(run_id)
+    if not meta: return {"error": "Run not found"}
+    layer = (meta.get("config") or {}).get("layer")
+    g = load_graph(run_id, layer) if layer else None
+    if not g: return {"error": "Graph not found"}
+    
+    md = f"# Lattice Analysis: {run_id}\n\n"
+    md += f"**Nodes:** {g.number_of_nodes()} | **Edges:** {g.number_of_edges()}\n\n"
+    
+    pr = pagerank(g)
+    top_users = sorted(pr.items(), key=lambda x: x[1], reverse=True)[:10]
+    md += "## Top 10 Users by PageRank\n"
+    for u, s in top_users:
+        md += f"- **{u}**: {s:.4f}\n"
+        
+    md += "\n## Communities (Louvain)\n"
+    comms = list(nx.community.louvain_communities(g, seed=42))
+    for i, c in enumerate(comms[:5]):
+        md += f"- **Group {i}**: {len(c)} members (e.g., {', '.join(list(c)[:3])}...)\n"
+        
+    return PlainTextResponse(md, media_type="text/markdown", headers={"Content-Disposition": f"attachment; filename=lattice_{run_id}.md"})

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+import json
 
 import networkx as nx
 
@@ -11,18 +12,15 @@ try:
 except ImportError:
     Network = None
 
-
 PALETTE = [
     "#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
     "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC",
 ]
 
-
 NEGATIVE_LABELS = {"tense", "hostile", "condescending", "dismissive", "passive_aggressive"}
 POSITIVE_LABELS = {"warm", "friendly"}
 
 def _polarity_color(pos, neg, total, llm_polarity=None, llm_label=None):
-    """Color by LLM label when present, fall back to lexicon polarity."""
     if llm_label:
         lbl = str(llm_label).strip().lower()
         if lbl in POSITIVE_LABELS:
@@ -30,22 +28,21 @@ def _polarity_color(pos, neg, total, llm_polarity=None, llm_label=None):
         if lbl in NEGATIVE_LABELS:
             return "#c43d3d"
         if lbl == "neutral":
-            return "#888888"
+            return "rgba(255,255,255,0.15)"
     if llm_polarity is not None:
         p = float(llm_polarity)
     elif total == 0 or (pos + neg) == 0:
-        return "#555555"
+        return "rgba(255,255,255,0.15)"
     else:
         p = (pos - neg) / max(pos + neg, 1)
     if p > 0.3:
         return "#3fa34d"
     if p < -0.3:
         return "#c43d3d"
-    return "#888888"
+    return "rgba(255,255,255,0.15)"
 
 def _is_llm_scored(data):
     return data.get("llm_polarity") is not None
-
 
 def audit_communities(graph, min_size=3):
     communities = list(nx.community.louvain_communities(graph, seed=42))
@@ -62,12 +59,6 @@ def audit_communities(graph, min_size=3):
         hub = max(members, key=lambda m: pr.get(m, 0))
         hub_edges = sum(1 for u, v in internal if hub in (u, v))
         hub_share = hub_edges / len(internal) if internal else 0.0
-        others = set()
-        for u, v in internal:
-            if u != hub:
-                others.add(u)
-            if v != hub:
-                others.add(v)
         if density > 0.3 and hub_share < 0.6:
             verdict = "real"
         elif hub_share > 0.75 and density < 0.15:
@@ -78,16 +69,6 @@ def audit_communities(graph, min_size=3):
                         "density": density, "hub_share": hub_share,
                         "verdict": verdict})
     return results
-
-
-def print_community_audit(graph):
-    rows = audit_communities(graph)
-    print(f"{'ID':<4}{'SIZE':<6}{'DENSITY':<10}{'HUB%':<8}{'VERDICT':<10}HUB")
-    print("-" * 75)
-    for r in rows:
-        print(f"{r['id']:<4}{r['size']:<6}{r['density']:<10.3f}"
-              f"{r['hub_share']:<8.2f}{r['verdict']:<10}{r['hub']}")
-
 
 def _community_layout(graph, communities, node_comm, seed=42):
     comm_graph = nx.Graph()
@@ -101,17 +82,19 @@ def _community_layout(graph, communities, node_comm, seed=42):
             comm_graph[cu][cv]["weight"] += 1
         else:
             comm_graph.add_edge(cu, cv, weight=1)
+            
     if len(comm_graph) > 1:
         comm_pos = nx.spring_layout(comm_graph, scale=4.0, seed=seed,
                                     weight="weight", k=3.0, iterations=200)
     else:
         comm_pos = {0: (0.0, 0.0)}
+        
     pos = {}
     for comm_id, members in enumerate(communities):
         cx, cy = comm_pos.get(comm_id, (0.0, 0.0))
         n = len(members)
         if n == 1:
-            pos[members[0]] = (cx, cy)
+            pos[list(members)[0]] = (cx, cy)
             continue
         radius = 0.6 + 0.08 * math.sqrt(n)
         for i, node in enumerate(members):
@@ -122,6 +105,26 @@ def _community_layout(graph, communities, node_comm, seed=42):
                          cy + radius * math.sin(angle) + jitter_y)
     return pos
 
+def _galaxy_layout(graph, scale=4.0, seed=42):
+    """Gephi-style layout with a Virtual Gravity Center to pull isolated nodes inward."""
+    G_grav = graph.to_undirected().copy()
+    center = '__GRAVITY_CENTER__'
+    G_grav.add_node(center)
+    
+    # Connect all nodes to the gravity center to pull them in
+    for n in G_grav.nodes():
+        if n != center:
+            G_grav.add_edge(n, center, weight=0.1)
+            
+    try:
+        # Kamada-Kawai forces a compact, non-ring shape
+        pos = nx.kamada_kawai_layout(G_grav)
+    except Exception:
+        pos = nx.spring_layout(G_grav, weight='weight', scale=scale, iterations=100, seed=seed)
+        
+    if center in pos:
+        del pos[center]
+    return pos
 
 def _filter_edges(graph, top_n=120, min_weight=1.0):
     edges = [e for e in graph.edges(data=True) if e[2].get("weight", 1) >= min_weight]
@@ -133,158 +136,87 @@ def _filter_edges(graph, top_n=120, min_weight=1.0):
         kept.add_edge(u, v, **d)
     return kept
 
+def render_interactive_html(graph, out_path, top_edges=10000, min_edge_weight=1.0, top_labels=100, **kwargs):
+    import networkx as nx
+    from pyvis.network import Network
 
-def render_interactive_html(graph, output_path, height="900px",
-                            top_edges=120, min_edge_weight=1.0,
-                            top_labels=40):
-    if Network is None:
-        raise RuntimeError("pyvis is not installed. Run: pip3 install --user pyvis")
+    # 1. Keep only largest connected component
+    G = nx.Graph()
+    for node, data in graph.nodes(data=True):
+        G.add_node(node, **data)
+    for u, v, data in graph.edges(data=True):
+        if data.get("weight", 1) >= min_edge_weight:
+            G.add_edge(u, v, **data)
 
-    full = graph
-    vis = _filter_edges(graph, top_n=top_edges, min_weight=min_edge_weight)
+    if G.number_of_nodes() > 0:
+        components = sorted(nx.connected_components(G), key=len, reverse=True)
+        G = G.subgraph(components[0]).copy()
 
-    try:
-        pr = nx.pagerank(full, weight="weight")
-    except Exception:
-        pr = {n: 1.0 for n in full.nodes()}
+    # 2. Kamada-Kawai Layout (Mathematical clusters, no physics engine)
+    print("Computing Kamada-Kawai layout...")
+    pos = nx.kamada_kawai_layout(G)
 
-    values = list(pr.values()) or [1.0]
-    lo, hi = min(values), max(values)
-    spread = hi - lo if hi > lo else 1.0
+    # 3. Build Pyvis (White background, faint gray edges)
+    net = Network(height="100vh", width="100%", bgcolor="#ffffff", font_color="#000000", directed=False, cdn_resources="in_line")
 
-    def size(n):
-        norm = (pr.get(n, lo) - lo) / spread
-        return int(18 + norm * 72)
+    communities = list(nx.community.louvain_communities(G, seed=42))
+    node_comm = {node: i for i, c in enumerate(communities) for node in c}
+    PALETTE = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
+    pr = nx.pagerank(G, weight='weight')
+    top_100 = set(sorted(pr, key=pr.get, reverse=True)[:100])
 
-    # Detect communities
-    comm_list = []
-    node_comm = {}
-    try:
-        comm_list = list(nx.community.louvain_communities(full, seed=42))
-        for i, c in enumerate(comm_list):
-            for node in c:
-                node_comm[node] = i
-    except Exception:
-        pass
+    for node, data in G.nodes(data=True):
+        msg_count = data.get("message_count", 1)
+        size = min(10 + (msg_count * 1.5), 30)
+        color = PALETTE[node_comm.get(node, 0) % len(PALETTE)]
+        label = str(node) if node in top_100 else " "
+        
+        x, y = pos.get(node, (0, 0))
+        net.add_node(str(node), label=label, size=size, color=color, x=float(x)*1000, y=float(y)*1000, physics=False, title=f"{node} ({msg_count} msgs)")
 
-    # Audit each community for verdict
-    audits = {}
-    try:
-        for a in audit_communities(full):
-            audits[a["id"]] = a
-    except Exception:
-        pass
-
-    positions = _community_layout(full, comm_list, node_comm) if comm_list else {}
-
-    ranked = sorted(pr.items(), key=lambda kv: -kv[1])
-    top_set = {n for n, _ in ranked[:top_labels]}
-
-    net = Network(height=height, width="100%", bgcolor="#0f0f0f",
-                  font_color="#f0f0f0", directed=False, cdn_resources="in_line")
-
-    # Store per-node data for the click-to-isolate JS
-    node_meta = {}
-
-    for node in full.nodes():
-        comm = node_comm.get(node)
-        color = PALETTE[comm % len(PALETTE)] if comm is not None else "#888888"
-        x, y = positions.get(node, (0.0, 0.0))
-        attrs = full.nodes[node]
-        msg_count = attrs.get("message_count", 0)
-        verdict = audits.get(comm, {}).get("verdict", "?") if comm is not None else "?"
-        tooltip = (f"<b>{node}</b><br>PageRank: {pr.get(node, 0):.4f}<br>"
-                   f"Messages: {msg_count}<br>Community: {comm} ({verdict})")
-        label = str(node) if node in top_set else ""
-        net.add_node(node, label=label, title=tooltip,
-                     x=float(x) * 400, y=float(y) * 400,
-                     size=size(node), color=color, physics=False,
-                     borderWidth=2 if verdict == "real" else (1 if verdict == "mixed" else 1),
-                     shape="dot" if verdict == "real" else ("box" if verdict == "artifact" else "dot"),
-                     font={"size": 18 if node in top_set else 12, "face": "arial",
-                           "color": "#ffffff", "strokeWidth": 3,
-                           "strokeColor": "#000000"},
-                     group=comm)
-
-    # Edge styling: bright if same community, dim if cross-community
-    for u, v, data in vis.edges(data=True):
-        weight = float(data.get("weight", 1.0))
-        pos = int(data.get("positive_count", 0))
-        neg = int(data.get("negative_count", 0))
-        total = int(data.get("message_count", 0))
-
-        cu = node_comm.get(u)
-        cv = node_comm.get(v)
-        same_comm = cu is not None and cu == cv
-
-        lines = [f"<b>{u} \u2194 {v}</b>", f"Weight: {weight:.2f}"]
-        if total:
-            lines.append(f"Messages: {total}")
-        if pos or neg:
-            lines.append(f"Positive: {pos} &nbsp; Negative: {neg}")
-            lines.append(f"Polarity: {(pos - neg) / max(pos + neg, 1):+.2f}")
-        if not same_comm:
-            lines.append("<i>cross-community edge</i>")
-        if data.get("llm_label"):
-            lines.append(f"LLM: <b>{data['llm_label']}</b>")
-
-        edge_color = _polarity_color(pos, neg, total,
-                                        llm_polarity=data.get("llm_polarity"),
-                                        llm_label=data.get("llm_label"))
-        is_llm = _is_llm_scored(data)
-        # LLM-scored edges: solid, thick, real color
-        if is_llm:
-            edge_width = 3.0
-            is_dashed = False
-            lines.append("<i>LLM-scored edge</i>")
-        else:
-            # Unscored: show lexicon polarity, but dashed and thin
-            edge_width = 1.0 if same_comm else 0.5
-            is_dashed = True
-            if not same_comm:
-                edge_color = "#3a3a3a"
-            lines.append("<i>lexicon-only (not yet LLM-scored)</i>")
-
-        net.add_edge(u, v, title="<br>".join(lines), color=edge_color,
-                     width=edge_width,
-                     value=weight, physics=False,
-                     dashes=is_dashed)
+    for u, v, data in G.edges(data=True):
+        net.add_edge(str(u), str(v), value=data.get("weight", 1), color="rgba(0,0,0,0.15)")
 
     net.set_options("""
-    {
+    var options = {
       "physics": {"enabled": false},
-      "interaction": {"hover": true, "tooltipDelay": 50,
-                      "navigationButtons": true, "dragNodes": true,
-                      "dragView": true, "zoomView": true,
-                      "multiselect": true, "selectConnectedEdges": true},
-      "nodes": {"borderWidth": 2, "borderWidthSelected": 5},
-      "edges": {"color": {"inherit": false, "highlight": "#ffffff"},
-                "smooth": {"type": "continuous", "roundness": 0.3},
-                "selectionWidth": 3}
+      "nodes": {"borderWidth": 0.5, "font": {"size": 12, "color": "#000000", "strokeWidth": 0}},
+      "edges": {"smooth": false}
     }
     """)
+    net.save_graph(str(out_path))
+    print("✅ Kamada-Kawai layout rendered successfully.")
 
-    out = Path(output_path)
-    net.save_graph(str(out))
-    _inject_extras(out, comm_list, pr, audits, vis, full, node_comm, top_set)
-    return out
+    with open(out_path) as f: html = f.read()
+    btns = """
+    <div style="position:fixed; top:15px; right:15px; z-index:9999; display:flex; gap:10px;">
+        <button onclick="window.open('/api/export/gexf/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Export GEXF</button>
+        <button onclick="window.open('/api/export/md/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Export Findings</button>
+        <button onclick="window.open('/api/graph/png/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Save PNG</button>
+    </div>
+    """
+    html = html.replace('</body>', btns + '</body>')
+    with open(out_path, 'w') as f: f.write(html)
+    return out_path
+
 
 
 def _inject_extras(out, comm_list, pr, audits, vis, full, node_comm, top_set):
     html = out.read_text(encoding="utf-8")
 
     rows = []
-    for i, c in enumerate(comm_list):
+    for i, c in enumerate(comm_list[:12]):
         color = PALETTE[i % len(PALETTE)]
         a = audits.get(i, {})
         best = a.get("hub", max(c, key=lambda n: pr.get(n, 0))) if c else "?"
         verdict = a.get("verdict", "?")
-        icon = {"real": "&#9679;", "artifact": "&#9632;", "mixed": "&#9650;"}.get(verdict, "?")
         rows.append(
             f'<div class="osi-row"><span class="osi-dot" style="background:{color}">'
             f'</span>{len(c)} &middot; <b>{best}</b> <span style="color:#888">'
             f'[{verdict}]</span></div>'
         )
+    
+    more_text = f'<div style="color:#666;margin-top:5px;">...and {len(comm_list)-12} more</div>' if len(comm_list) > 12 else ""
 
     legend = (
         '<div id="osi-legend" style="position:absolute;top:14px;left:14px;'
@@ -292,22 +224,14 @@ def _inject_extras(out, comm_list, pr, audits, vis, full, node_comm, top_set):
         'padding:14px 16px;font-family:arial;font-size:13px;color:#eee;'
         'max-height:80vh;overflow:auto;z-index:9999">'
         '<div style="font-weight:bold;margin-bottom:8px;font-size:14px">Communities</div>'
-        + "".join(rows) +
+        + "".join(rows) + more_text +
         '<div style="margin-top:14px;font-weight:bold;font-size:14px">Edge color</div>'
         '<div class="osi-row"><span class="osi-dot" style="background:#3fa34d">'
-        '</span>positive (lexicon)</div>'
-        '<div class="osi-row"><span class="osi-dot" style="background:#888888">'
-        '</span>neutral (lexicon)</div>'
+        '</span>positive</div>'
+        '<div class="osi-row"><span class="osi-dot" style="background:rgba(255,255,255,0.15)">'
+        '</span>neutral</div>'
         '<div class="osi-row"><span class="osi-dot" style="background:#c43d3d">'
         '</span>negative</div>'
-        '<div style="margin-top:10px;font-weight:bold;font-size:14px">Line style</div>'
-        '<div class="osi-row"><span style="display:inline-block;width:22px;'
-        'border-top:3px solid #888"></span>solid = LLM-scored</div>'
-        '<div class="osi-row"><span style="display:inline-block;width:22px;'
-        'border-top:2px dashed #555"></span>dashed = lexicon only</div>'
-        '<div style="margin-top:14px;font-weight:bold;font-size:14px">Actions</div>'
-        '<div class="osi-row" style="color:#9cf">Click a node to isolate its neighborhood</div>'
-        '<div class="osi-row" style="color:#9cf">Double-click empty space to reset</div>'
         '<div style="margin-top:14px;font-weight:bold;font-size:14px">Shown</div>'
         f'<div class="osi-row">{vis.number_of_edges()} edges '
         f'(of {full.number_of_edges()})</div>'
@@ -319,105 +243,13 @@ def _inject_extras(out, comm_list, pr, audits, vis, full, node_comm, top_set):
         '</style>'
     )
 
-    # JavaScript for click-to-isolate
-    isolate_js = """
-    <script>
-    (function() {
-      var allNodes = null;
-      var allEdges = null;
-
-      function waitForNetwork() {
-        if (typeof network === 'undefined' || !network) {
-          setTimeout(waitForNetwork, 100);
-          return;
-        }
-        allNodes = network.body.data.nodes;
-        allEdges = network.body.data.edges;
-        var originalNodeColors = {};
-        var originalEdgeColors = {};
-        allNodes.forEach(function(n) { originalNodeColors[n.id] = n.color; });
-        allEdges.forEach(function(e) { originalEdgeColors[e.id] = e.color; });
-
-        network.on('click', function(params) {
-          if (params.nodes.length === 0) return;
-          var selected = params.nodes[0];
-          var connected = new Set([selected]);
-          var connectedEdges = new Set();
-
-          allEdges.forEach(function(e) {
-            if (e.from === selected || e.to === selected) {
-              connected.add(e.from);
-              connected.add(e.to);
-              connectedEdges.add(e.id);
-            }
-          });
-
-          var updates = [];
-          allNodes.forEach(function(n) {
-            var isConnected = connected.has(n.id);
-            updates.push({
-              id: n.id,
-              color: isConnected ? originalNodeColors[n.id] : 'rgba(60,60,60,0.15)',
-              font: isConnected
-                ? {color: '#ffffff', strokeWidth: 3, strokeColor: '#000000'}
-                : {color: 'rgba(200,200,200,0.2)', strokeWidth: 0}
-            });
-          });
-          allEdges.forEach(function(e) {
-            updates.push({
-              id: e.id,
-              color: connectedEdges.has(e.id) ? '#ffffff' : 'rgba(50,50,50,0.1)',
-              width: connectedEdges.has(e.id) ? 3 : 0.5
-            });
-          });
-          allNodes.update(updates);
-        });
-
-        network.on('doubleClick', function(params) {
-          if (params.nodes.length > 0) return;
-          var updates = [];
-          allNodes.forEach(function(n) {
-            updates.push({
-              id: n.id,
-              color: originalNodeColors[n.id],
-              font: {color: '#ffffff', strokeWidth: 3, strokeColor: '#000000'}
-            });
-          });
-          allEdges.forEach(function(e) {
-            updates.push({id: e.id, color: originalEdgeColors[e.id]});
-          });
-          allNodes.update(updates);
-          allEdges.update(updates);
-        });
-      }
-      waitForNetwork();
-    })();
-    </script>
-    """
-
     png_button = """
     <div style="position:absolute; top:14px; right:14px; z-index:9999;">
-        <button id="download-png-btn" style="font-family:inherit; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">
-            Save as PNG
+        <button id="download-png-btn" onclick="window.open('/api/graph/png/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:inherit; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">
+            Save Full PNG
         </button>
     </div>
-    <script>
-    document.getElementById('download-png-btn').addEventListener('click', function() {
-        // Find the main canvas inside the pyvis network container
-        var canvas = document.querySelector('#mynetwork canvas');
-        if (!canvas) {
-            alert('Canvas not found. Try again after the graph stabilizes.');
-            return;
-        }
-        // Create a temporary link to download the canvas data
-        var url = canvas.toDataURL('image/png');
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'network_graph.png';
-        a.click();
-    });
-    </script>
     """
 
-    html = html.replace("<body>", "<body>" + legend + isolate_js + png_button)
+    html = html.replace("<body>", "<body>" + legend + png_button)
     out.write_text(html, encoding="utf-8")

@@ -382,3 +382,15 @@ if __name__ == "__main__":
         print("ANSWER:", result["answer"])
         print("(rounds:", result["rounds"], ")")
         print()
+
+def get_graph_context(graph):
+    if graph.number_of_nodes() == 0: return "Graph is empty."
+    top = sorted(graph.nodes(data=True), key=lambda x: x[1].get("message_count", 0), reverse=True)[:5]
+    top_str = ", ".join([f"{u[0]} ({u[1].get('message_count')} msgs)" for u in top])
+    comms = {}
+    for _, d in graph.nodes(data=True):
+        c = d.get("group", -1)
+        if c != -1: comms[c] = comms.get(c, 0) + 1
+    top_c = sorted(comms.items(), key=lambda x: x[1], reverse=True)[:3]
+    c_str = ", ".join([f"Group {c} ({s} users)" for c, s in top_c])
+    return f"--- GRAPH CONTEXT ---\nNodes: {graph.number_of_nodes()}\nEdges: {graph.number_of_edges()}\nTop Users: {top_str}\nCommunities: {c_str}\n---------------------"
