@@ -64,3 +64,50 @@ The tool uses Groq's free tier by default. No credit card required.
        LLM_API_KEY=your_key_here
 
 The default model is llama-3.3-70b-versatile. If you hit the 1,000 requests/day limit, switch to llama-3.1-8b-instant in .env for 14,400 requests/day.
+
+---
+
+## Link Prediction on the Reddit Hyperlink Graph
+
+**Result:** Stripping the top-100 hubs from Adamic-Adar's scoring graph improves its ranking of future subreddit-link pairs on the same candidate pool.
+
+**Setup:** 2,000-node non-hub universe, 2-hop candidate pool, three temporal splits. Reproducible via `hub0_check.py` (single verified result) and `sweep_fixed.py` (3-split × 5-cutoff robustness). Both run with `PYTHONHASHSEED=0` for deterministic tie-breaking. A hub=0 identity check confirms the two scorers collapse to bit-identical output when nothing is stripped (`Δ AP = 0.0000000000e+00`).
+
+### Main result (2016-01-01, cutoff=100)
+
+| Metric | AA with hubs | AA stripped | Δ |
+|---|---|---|---|
+| P@100 | 18% | 49% | +31 pt |
+| AP | 0.0469 | 0.0699 | **+0.023** |
+
+### Cutoff sweep (Δ AP)
+
+| Cutoff | 2015-07 | 2016-01 | 2016-07 |
+|---|---|---|---|
+| 10 | +0.0039 | +0.0033 | +0.0014 |
+| 50 | +0.0086 | +0.0122 | +0.0050 |
+| **100** | **+0.0113** | **+0.0230** | **+0.0065** |
+| 300 | −0.0080 | +0.0032 | +0.0028 |
+
+Cutoff 100 is the peak on every split — reproducible structure, not a lucky pick. Paired-bootstrap 95% CIs exclude zero on every positive row and on the one negative row (2015-07 at 300). Aggressive removal (300 hubs, 1.3% of nodes) can *hurt* by deleting genuine interaction signal alongside the shortcut.
+
+### Mechanism (2016-01-01, cutoff 100)
+
+The two scoring graphs share only 38 of their top-100 predictions (see `diff_top100.py`, `inspect_top.py`):
+
+- 62 pairs unique to full scoring sit at the **99.4th percentile of endpoint degree**, hit at 16%.
+- 62 pairs unique to stripped scoring sit three percentile points lower, hit at **66%**.
+
+Full-scoring top-100 is dominated by the very largest subreddits — subs that already link everywhere and don't form new outbound links to each other.
+
+### Retracted claims
+
+Earlier drafts of this analysis reported a "74% accuracy" figure (pair-orientation bug: reversed `(u,v)` pairs missed lookups), a "200× lift" (compared against whole-graph base rate instead of pool base rate), and a "40.6% unreachable bridge class" (74% of that class was a hub-stripping artifact, not a genuine blind spot). All are retracted. The number that survives is +0.023 AP.
+
+### Recall ceiling
+
+12.5% at K=5000 against an 89% reachable ceiling. This is a shortlist generator, not a predictor.
+
+### Product recommendation
+
+Expose hub cutoff as a degree percentile (highest few percent), not a fixed count. Do not promise a precision number — the effect size is split-dependent (+0.0065 to +0.023 at cutoff 100).

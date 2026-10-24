@@ -13,20 +13,30 @@ df = pd.read_csv("soc-redditHyperlinks-body.tsv", sep='\t',
 g = ig.Graph.TupleList(df.values.tolist(), directed=False)
 g.delete_vertices(np.argsort(g.degree())[-100:])
 g = g.k_core(4).components().giant()
-names = g.vs['name']
 
 print("Leiden communities...")
 partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition)
 membership = partition.membership
-num_comms = len(partition)
 comm_sizes = sorted([(len(c), i) for i, c in enumerate(partition)], reverse=True)
 
-print("Betweenness...")
+# Filter to top 25 communities
+top_25_ids = set([c[1] for c in comm_sizes[:25]])
+valid_nodes = [i for i in range(g.vcount()) if membership[i] in top_25_ids]
+g = g.subgraph(valid_nodes)
+
+# Recalculate
+partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition)
+membership = partition.membership
+comm_sizes = sorted([(len(c), i) for i, c in enumerate(partition)], reverse=True)
+
+names = g.vs['name']
 betw = np.array(g.betweenness(cutoff=2))
 betw_norm = betw / max(betw.max(), 1)
 degrees = np.array(g.degree())
 
-# ============ LAYOUT (cached) ============
+critical_idx = np.argsort(betw)[-max(50, int(g.vcount() * 0.01)):]
+
+# ============ LAYOUT ============
 if os.path.exists(CACHE):
     final_pos = np.load(CACHE)
     if final_pos.shape[0] != g.vcount():
@@ -41,12 +51,13 @@ if final_pos is None:
         cu, cv = membership[u], membership[v]
         if cu != cv:
             meta_edges.add((min(cu, cv), max(cu, cv)))
-    meta_g = ig.Graph(n=num_comms, edges=list(meta_edges))
-    meta_pos = np.array(meta_g.layout_fruchterman_reingold(niter=1000).coords)
+    meta_g = ig.Graph(n=len(comm_sizes), edges=list(meta_edges))
+    meta_pos = np.array(meta_g.layout_fruchterman_reingold(niter=500).coords) 
     if np.max(np.abs(meta_pos)) > 0:
-        meta_pos = (meta_pos / np.max(np.abs(meta_pos))) * 100
+        # Scale up the meta-graph so communities are spread out
+        meta_pos = (meta_pos / np.max(np.abs(meta_pos))) * 200 
     final_pos = np.zeros((g.vcount(), 2))
-    for c_id in range(num_comms):
+    for c_id in range(len(comm_sizes)):
         nodes = [i for i in range(g.vcount()) if membership[i] == c_id]
         if not nodes: continue
         if len(nodes) == 1:
@@ -61,6 +72,8 @@ if final_pos is None:
     np.save(CACHE, final_pos)
 
 x, y = final_pos[:,0], final_pos[:,1]
+x = x * 1.4
+y = y * 1.4
 
 # ============ COLORS ============
 distinct_20 = ['#e6194B','#3cb44b','#ffe119','#4363d8','#f58231','#911eb4',
@@ -72,7 +85,7 @@ color_map = {c: (distinct_20[r] if r < 20 else '#333333')
 
 # ============ RENDER ============
 print("Rendering...")
-fig, ax = plt.subplots(figsize=(36, 36), facecolor='#0a0a0a')
+fig, ax = plt.subplots(figsize=(40, 40), facecolor='#0a0a0a')
 ax.set_facecolor('#0a0a0a')
 
 edges = np.array(g.get_edgelist())
@@ -98,7 +111,6 @@ sizes = np.clip(degrees * 0.1 + (betw_norm ** 0.8) * 800, 4, 400)
 
 ax.scatter(x, y, c=node_colors, s=sizes, alpha=0.95, edgecolors='none', zorder=2)
 
-critical_idx = np.argsort(betw)[-max(50, int(g.vcount() * 0.01)):]
 crit_colors = [node_colors[i] for i in critical_idx]
 ax.scatter(x[critical_idx], y[critical_idx], c=crit_colors, s=sizes[critical_idx], 
            alpha=1.0, edgecolors='#ffffff', linewidths=3.0, zorder=15)
@@ -111,15 +123,24 @@ texts = []
 elite_indices = list(set(np.argsort(degrees)[-10:]) | set(np.argsort(betw)[-10:]))
 for idx in elite_indices:
     labeled_nodes.add(idx)
-    t = ax.text(x[idx], y[idx], f"r/{names[idx]}", fontsize=14, color='white',
+    t = ax.text(x[idx], y[idx], f"r/{names[idx]}", fontsize=10, color='white',
                 ha='center', va='center', fontweight='bold', zorder=20, clip_on=True,
-                bbox=dict(boxstyle='round,pad=0.2', facecolor='#e6194B',
-                          alpha=0.95, edgecolor='#ffffff', linewidth=1.0))
+                bbox=dict(boxstyle='round,pad=0.1', facecolor='#e6194B',
+                          alpha=0.95, edgecolor='#ffffff', linewidth=0.8))
     texts.append(t)
 
-# 2. ISLAND HUBS: Top 25 Communities by size (Black)
-for size, c_id in comm_sizes[:25]: 
-    if size < 30: continue
+# 2. EVERY WHITE HALO NODE (Black)
+for idx in critical_idx:
+    if idx in labeled_nodes: continue
+    labeled_nodes.add(idx)
+    t = ax.text(x[idx], y[idx], f"r/{names[idx]}", fontsize=8, color='white',
+                ha='center', va='center', fontweight='bold', zorder=18, clip_on=True,
+                bbox=dict(boxstyle='round,pad=0.1', facecolor='#111111',
+                          alpha=0.9, edgecolor='#ffffff', linewidth=0.6))
+    texts.append(t)
+
+# 3. ISLAND HUBS
+for size, c_id in comm_sizes:
     nodes_in = [i for i in range(g.vcount()) if membership[i] == c_id]
     sub = g.subgraph(nodes_in)
     hub_local_idx = max(range(len(nodes_in)), key=lambda i: sub.degree(i))
@@ -128,45 +149,44 @@ for size, c_id in comm_sizes[:25]:
     if hub_idx in labeled_nodes: continue
     
     labeled_nodes.add(hub_idx)
-    t = ax.text(x[hub_idx], y[hub_idx], f"r/{names[hub_idx]}", fontsize=12, color='white',
+    t = ax.text(x[hub_idx], y[hub_idx], f"r/{names[hub_idx]}", fontsize=8, color='white',
                 ha='center', va='center', fontweight='bold', zorder=18, clip_on=True,
-                bbox=dict(boxstyle='round,pad=0.15', facecolor='#111111',
-                          alpha=0.9, edgecolor='#ffffff', linewidth=0.8))
+                bbox=dict(boxstyle='round,pad=0.1', facecolor='#111111',
+                          alpha=0.9, edgecolor='#ffffff', linewidth=0.6))
     texts.append(t)
 
-# 3. Repel labels
+# 4. Repel labels
 print(f"Repelling {len(texts)} labels...")
 adjust_text(texts, 
             x=x, y=y, 
-            arrowprops=dict(arrowstyle='-', color='#aaaaaa', lw=1.0, shrinkA=5, shrinkB=5),
-            expand_points=(1.5, 1.5),
-            expand_text=(1.2, 1.2),
-            force_text=(2.0, 2.0), 
+            arrowprops=dict(arrowstyle='-', color='#aaaaaa', lw=0.5, shrinkA=2, shrinkB=2),
+            expand_points=(2.0, 2.0),
+            expand_text=(1.5, 1.5),
+            force_text=(5.0, 5.0), 
             force_points=(1.0, 1.0), 
-            time_lim=15,
+            time_lim=30,              
             lim=500)
 
-# ============ CROP ============
-# Lock the camera to the actual data, ignoring where labels moved
-x_min, x_max = np.percentile(x, [2, 98])
-y_min, y_max = np.percentile(y, [2, 98])
+# ============ CROP (THE FIX) ============
+# Use 0.5% to 99.5% to include the top cluster but ignore the extreme rogue nodes
+x_min, x_max = np.percentile(x, [0.5, 99.5])
+y_min, y_max = np.percentile(y, [0.5, 99.5])
 xr, yr = x_max - x_min, y_max - y_min
-pad = 0.05
+pad = 0.10
 ax.set_xlim(x_min - pad*xr, x_max + pad*xr)
 ax.set_ylim(y_min - pad*yr, y_max + pad*yr)
 ax.set_aspect('equal')
 
 # ============ LEGEND ============
 legend_elems = [
-    Line2D([0],[0], marker='o', color='w', label='Elite (Top 10 Deg/Betweenness)', markerfacecolor='#e6194B', markersize=16),
-    Line2D([0],[0], marker='o', color='w', label='Critical Node (Red/White Halo)', markerfacecolor='#e6194B', markeredgecolor='white', markeredgewidth=2, markersize=12),
-    Line2D([0],[0], marker='o', color='w', label='Island Hub (Black)', markerfacecolor='#111111', markeredgecolor='white', markeredgewidth=1, markersize=14)
+    Line2D([0],[0], marker='o', color='w', label='Elite (Top 10)', markerfacecolor='#e6194B', markersize=10),
+    Line2D([0],[0], marker='o', color='w', label='Critical Node', markerfacecolor='#e6194B', markeredgecolor='white', markeredgewidth=1.5, markersize=8),
+    Line2D([0],[0], marker='o', color='w', label='Island Hub', markerfacecolor='#111111', markeredgecolor='white', markeredgewidth=1, markersize=10)
 ]
 ax.legend(handles=legend_elems, loc='upper left', framealpha=0.9,
           facecolor='#1a1a1a', edgecolor='white', labelcolor='white',
-          fontsize=14, title='Legend', title_fontsize=16)
+          fontsize=10, title='Legend', title_fontsize=12)
 
 ax.axis('off')
-# CRITICAL: Removed bbox_inches='tight' so it respects the xlim/ylim we set above
 plt.savefig("GALAXY_META.png", dpi=200, facecolor='#0a0a0a', pad_inches=0)
 print("✅ Saved GALAXY_META.png")
