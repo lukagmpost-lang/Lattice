@@ -111,3 +111,8 @@ Earlier drafts of this analysis reported a "74% accuracy" figure (pair-orientati
 ### Product recommendation
 
 Expose hub cutoff as a degree percentile (highest few percent), not a fixed count. Do not promise a precision number — the effect size is split-dependent (+0.0065 to +0.023 at cutoff 100).
+
+### Degree-penalty alternative
+
+Instead of a hard hub cutoff, apply a continuous penalty `AA / (deg_u · deg_v)^α`. At α=0.25 (or whichever captures ≥60% of the strip gain), this reproduces most of the +0.023 without a fixed cutoff count. Alpha transfers across graph sizes in a way a hub count does not.
+
