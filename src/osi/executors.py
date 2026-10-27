@@ -796,7 +796,8 @@ def discuss(run: str, question: str = "") -> ResultObject:
         "modularity": communities["modularity"],
         "n_communities": communities["n_communities"],
     }
-    values = {"findings": _shape_findings(metrics, communities, ranked, simple)}
+    _discuss_vocab = vocabulary_for(get_source(run))
+    values = {"findings": _shape_findings(metrics, communities, ranked, simple, _discuss_vocab)}
     return _finish(
         "discuss",
         {"run": run, "question": question},

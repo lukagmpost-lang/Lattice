@@ -21,6 +21,7 @@ from osi.loader import load_edge_list, load_graphml  # noqa: E402
 from osi.loaders.slack import load_slack_export, detect_slack_format  # noqa: E402
 from osi.loaders.telegram import load_telegram_export, detect_telegram_format  # noqa: E402
 from osi.loaders.whatsapp import load_whatsapp_export, detect_whatsapp_format  # noqa: E402
+from osi.loaders.osint import load_osint_entity, detect_osint_format  # noqa: E402
 from osi.analysis import (  # noqa: E402
     betweenness_centrality,
     closeness_centrality,
@@ -50,7 +51,7 @@ from osi.store import (  # noqa: E402
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze a graph from a file or from a saved run.")
-    parser.add_argument("--source", choices=("file", "slack", "telegram", "whatsapp"), default=None)
+    parser.add_argument("--source", choices=("file", "slack", "telegram", "whatsapp", "osint"), default=None)
     parser.add_argument("--path", help="Edge list, GraphML, or Slack export. Used with --source.")
     parser.add_argument("--analyze", choices=("all", "centrality", "communities"), default="all")
     parser.add_argument("--out", default="graph.json", help="Node-link JSON output path.")
@@ -104,7 +105,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             args.edge_rule = "temporal"
         else:
             args.edge_rule = "thread"
-    if args.source in ("file", "slack", "telegram", "whatsapp"):
+    if args.source in ("file", "slack", "telegram", "whatsapp", "osint"):
         if not args.path:
             parser.error(f"--source {args.source} requires --path")
         return args
@@ -297,6 +298,8 @@ def graph_layer(args: argparse.Namespace) -> str:
         return "telegram"
     if args.source == "whatsapp":
         return "whatsapp"
+    if args.source == "osint":
+        return "osint"
     return "graph"
 
 
@@ -416,6 +419,16 @@ def _load_source_file(
         print(f"Type: {metadata['chat_type']}")
         print(f"Members: {metadata['member_count']}, Messages: {metadata['message_count']}")
         return graph
+    if source == "osint":
+        confidence = detect_osint_format(path)
+        if confidence == "low":
+            raise ValueError(f"Could not detect valid OSINT query at {path}")
+        graph, metadata = load_osint_entity(path)
+        print("Detected: OSINT query")
+        print(f"Query: {metadata['query']}")
+        print(f"QID: {metadata['wikidata_qid']}")
+        print(f"Nodes: {metadata['node_count']}, Edges: {metadata['edge_count']}")
+        return graph
     if source == "slack":
         confidence = detect_slack_format(path)
         if confidence == "low":
@@ -483,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_saved_runs()
         return 0
     # --run and --load-run win unless --no-cache asked for a fresh file read.
-    reading_file = args.source in ("file", "slack", "telegram", "whatsapp") and not (args.load_run and not args.no_cache)
+    reading_file = args.source in ("file", "slack", "telegram", "whatsapp", "osint") and not (args.load_run and not args.no_cache)
     if reading_file:
         try:
             graph = _load_source_file(

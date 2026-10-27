@@ -11,3 +11,11 @@
 *.png
 .env
 .env.*
+
+# Cuyahoga raw data (regenerable from query scripts)
+cuyahoga_*.json
+cuyahoga_*.csv
+cuyahoga_*.pkl
+cuyahoga_*.png
+cuyahoga_*.html
+cuyahoga_*.graphml

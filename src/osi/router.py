@@ -13,17 +13,21 @@ _DEFAULT_TOP = 10
 
 _TOP_BY = re.compile(r"^top (\d+) by (\S+)$", re.IGNORECASE)
 _TOP = re.compile(r"^top (\d+) (\S+)$", re.IGNORECASE)
-_PATH = re.compile(r"^path from (\S+) to (\S+)$", re.IGNORECASE)
-_DISTANCE = re.compile(r"^distance between (\S+) and (\S+)$", re.IGNORECASE)
-_CONNECTED = re.compile(r"^are (\S+) and (\S+) connected$", re.IGNORECASE)
-_ABOUT = re.compile(r"^tell me about (\S+)$", re.IGNORECASE)
-_WHO = re.compile(r"^who is (\S+)$", re.IGNORECASE)
-_DESCRIBE = re.compile(r"^describe (\S+)$", re.IGNORECASE)
+_PATH = re.compile(r"^path from (.+?) to (.+)$", re.IGNORECASE)
+_DISTANCE = re.compile(r"^distance between (.+?) and (.+)$", re.IGNORECASE)
+_CONNECTED = re.compile(r"^are (.+?) and (.+) connected$", re.IGNORECASE)
+_ABOUT = re.compile(r"^tell me about (.+)$", re.IGNORECASE)
+_WHO = re.compile(r"^who is (.+)$", re.IGNORECASE)
+_DESCRIBE = re.compile(r"^describe (.+)$", re.IGNORECASE)
 
 # Longer phrases first so "most connections" is not read as something shorter.
 _RANK_PHRASES = (
     ("most important", "pagerank"),
     ("most influential", "pagerank"),
+    ("most central", "pagerank"),
+    ("most centrally located", "pagerank"),
+    ("central person", "pagerank"),
+    ("who is central", "pagerank"),
     ("most connections", "degree"),
     ("most connected", "degree"),
     ("connects the most", "betweenness"),

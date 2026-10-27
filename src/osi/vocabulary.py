@@ -29,6 +29,17 @@ VOCAB = {
         "network": "group",
         "networks": "groups",
     },
+    "osint": {
+        "person": "person",
+        "people": "people",
+        "group": "cluster",
+        "critical": "bridge person",
+        "bridge": "connector",
+        "isolated": "isolated person",
+        "hub": "most connected person",
+        "network": "entity graph",
+        "networks": "entity graphs",
+    },
     "general": {
         "person": "account",
         "people": "accounts",
@@ -70,7 +81,7 @@ def get_source(run_id: str) -> str:
         return "general"
 
     source = str(metadata.get("source") or "").strip().casefold()
-    if source in {"slack", "telegram"}:
+    if source in {"slack", "telegram", "osint"}:
         return source
     if source in {"csv", "tsv"}:
         return "csv"
