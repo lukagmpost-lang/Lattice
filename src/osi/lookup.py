@@ -19,6 +19,32 @@ def load():
     return _CACHE
 
 
+_SUITE_TOKENS = ("STE ", "SUITE", "PMB", "UNIT ", "#")
+
+def _mail_class(G, addr_node):
+    owners = [x for x in G.neighbors(addr_node) if x.startswith("owner|")]
+    n = len(owners)
+    if n == 2:
+        import difflib
+        a, b = [x[6:] for x in owners]
+        ratio = difflib.SequenceMatcher(None, a.upper(), b.upper()).ratio()
+        return "same_name_variant" if ratio > 0.85 else "trivial"
+    if n < 2: return "trivial"
+    kinds = [G.nodes[o].get("kind", "unknown") for o in owners]
+    np = sum(1 for k in kinds if k == "person")
+    ne = sum(1 for k in kinds if k == "entity")
+    street = (G.nodes[addr_node].get("street") or "").upper()
+    has_suite = any(t in street for t in _SUITE_TOKENS)
+    if n >= 20:
+        if has_suite or ne / n >= 0.7: return "commercial_drop"
+        if np / n >= 0.7: return "residential_building"
+        return "large_mixed"
+    if n >= 11: return "mid_mixed"
+    if np / n >= 0.7: return "small_household"
+    if ne / n >= 0.7: return "small_entity"
+    return "small_mixed"
+
+
 def find_person(query):
     G = load()
     q = _u(query)
@@ -84,12 +110,18 @@ def _dossier(node_key):
     co_owners = []
     transfers_out = []
     transfers_in = []
+    suppressed = 0
     for nb in G.neighbors(node_key):
         if not nb.startswith("owner|"): continue
         e = G[node_key][nb]
         rel = e.get("relation", "?")
         if rel == "same_mail":
-            co_owners.append((nb[6:], rel))
+            shared = [a for a in G.neighbors(node_key) if a.startswith("mail|") and G.has_edge(nb, a)]
+            cls = _mail_class(G, shared[0]) if shared else "unknown"
+            if cls in ("residential_building", "commercial_drop", "large_mixed"):
+                suppressed += 1
+            else:
+                co_owners.append((nb[6:], cls))
         elif rel == "sold_to":
             transfers_out.append((nb[6:], e.get("tx_weight", 0)))
 
@@ -97,12 +129,12 @@ def _dossier(node_key):
     total_owners = len(_OWN_COUNTS)
 
     limits = []
-    if co_owners:
-        limits.append(
-            f"{len(co_owners)} owner node(s) share a mailing address with this one. "
-            "Whether that is one operator or unrelated parties at a shared mailbox "
-            "requires deed signatures - see book_page on each parcel."
-        )
+    if co_owners or suppressed:
+        from collections import Counter as _C
+        by_class = _C(cls for _, cls in co_owners)
+        if suppressed: by_class["suppressed (building/drop)"] += suppressed
+        parts = [f"{n} {c}" for c, n in by_class.most_common()]
+        limits.insert(0, "Co-mailers: " + ", ".join(parts) + ". Small-entity clusters are candidates, not confirmed connections.")
     if transfers_out and not transfers_in:
         limits.append(
             f"{len(transfers_out)} outbound transfer(s) visible, no inbound. "
@@ -145,6 +177,7 @@ def _dossier(node_key):
             for a in addrs
         ],
         "co_owners_same_mail": co_owners[:10],
+        "co_owners_suppressed": suppressed,
         "transfers_out": transfers_out[:10],
         "what_i_cannot_answer": limits,
     }
@@ -179,6 +212,8 @@ def render(dossier):
         out.append("  shares mail with:")
         for nm, rel in dossier["co_owners_same_mail"][:5]:
             out.append(f"    {nm[:50]}  ({rel})")
+    if dossier.get("co_owners_suppressed"):
+        out.append(f"    ({dossier[chr(39)+chr(99)+chr(111)+chr(95)+chr(111)+chr(119)+chr(110)+chr(101)+chr(114)+chr(115)+chr(95)+chr(115)+chr(117)+chr(112)+chr(112)+chr(114)+chr(101)+chr(115)+chr(115)+chr(101)+chr(100)+chr(39)]} additional co-mailers at building/drop addresses, suppressed)")
     if dossier["transfers_out"]:
         out.append("  sold to:")
         for nm, w in dossier["transfers_out"][:5]:
