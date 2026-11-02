@@ -1,94 +1,76 @@
-# Cuyahoga County Land Ownership — Preliminary Finding
+# Cuyahoga County Land Ownership — Finding
 
 ## Summary
 
-Cuyahoga County has a public land bank system and a dispersed private
-property market. The land bank is the largest single holder. No
-concentration is visible under any single owner name in the current
-graph. Mailing-address clustering and beneficial-owner structure are
-untested.
+Cuyahoga County has a public land bank system and a dispersed private property market. The land bank holds 18,000-22,000 parcels depending on how the strings are counted. No single owner string outside the land bank holds more than 50 parcels. Mailing-address clustering was tested and found to be mostly buildings and commercial mail drops, not operator clusters.
 
 ## What was built
 
-- `src/osi/loaders/cuyahoga.py` — parcel fabric → bipartite graph
-- `src/osi/loaders/cuyahoga_transfers.py` — deed history → transfer graph
-- `cuyahoga_unified.pkl` — merged graph (not in repo; schema in schema_dump)
+- src/osi/loaders/cuyahoga.py — parcel fabric to bipartite graph (295,554 nodes)
+- src/osi/loaders/cuyahoga_transfers.py — deed history to transfer graph (840,940 nodes)
+- src/osi/lookup.py — find_person() front door, returns dossier with derived limits
+- analysis/cuyahoga/ — 14 scripts that produced the numbers below
 
-## Findings (measured, with caveats)
+## Findings
 
-**1. Land bank scale.**
-Parcels whose most recent transfer was into a land bank: 22,931.
-Parcels whose most recent transfer was out: 5,884.
-Naive release rate: 20.4% (cumulative snapshot; not cohort-adjusted).
+**1. Land bank scale.** 18,186-20,501 parcels depending on definition: 18,323 (all 253 name variants, sum of total_parcels), 16,733 (three majors: City of Cleveland LRP 13,932, County LRC 1,449, East Cleveland 1,353), 18,186 (rc2 strict matcher), 20,501 (rc1 parcel-level, last transfer into LB), 22,515 (post-v6 government fix). The published figure must state which definition. County LRC is ~1,400, not the ~2,900 in earlier handoffs.
 
-**2. Disposition.**
-Of parcels released by land banks: 3,149 went directly to individual
-recipients (3,001 unique), 879 to entities (469), 345 to nonprofits (151),
-7,137 to other government entities (mostly internal self-transfer).
-Direct-to-individual is the dominant external path.
+**2. The land bank is a warehouse, not a feeder.** rc1 parcel-level: 79.2% of parcels whose last transfer was into an LB are still in LB. 20.8% left. This is a floor on release rate because the transfer source returns one row per parcel (last transfer only) — a parcel that went LB then X then Y shows as never in LB. True release is above 20.8%. 34% of current inventory arrived via intra-LB reshuffle, not fresh external acquisition.
 
-**3. Private ownership dispersion.**
-Owner-string threshold sweep (not de-duplicated by mailing address or
-entity structure):
+**3. Holding age is measured, not asserted.** Of 10,336 parcels currently held by a land bank, median time since most recent LB acquisition is 10 years; 48.9% not re-acquired since before 2016. Acquisition waves cluster at ~2010-2012 (foreclosure crisis, ~2,000 events, 20% of stock) and ~2022 (~800 events). Of 341 released parcels where entry and exit dates are both visible, median tenure was 1 year (mean 2.4), with 59% passing through in ≤1 year. The 5,396 total releases include those whose entry dates precede the transfer-history window and cannot be timed.
 
-| Threshold | Owners | Parcels held |
-|---|---|---|
-| 3+ parcels | 10,459 | 56,619 |
-| 5+ parcels | 3,343 | 33,188 |
-| 10+ parcels | 876 | 17,999 |
-| 20+ parcels | 254 | 10,017 |
+**4. CHN Housing Partners is a distributor, not a holder.** Across five name variants, CHN received 58 parcels from the land bank and transferred 578 out to ~578 individual recipients. The 335 parcels attributed to nonprofit in the follow-through table belong mostly to Habitat, Slavic Village Development, Detroit Shoreway CDC, and churches, not CHN.
 
-Caveat: this sweep lumps apartments parceled into condo units, banks,
-government, and institutions into the "private" set. Not yet cleaned.
+**5. Three Black Knights and The Orlean Company are independent on every graph-testable axis.** Shared grantors: 1 (Cuyahoga County LRC itself; null finding). Shared grantees: 0. Shared mailing addresses: 0. This tests grantor overlap, grantee overlap, and mailing address. It does not test signatories or beneficial ownership.
 
-**4. No visible single-name accumulator.**
-The largest single owner string in the non-land-bank set holds <50
-parcels. Mailing-address clustering (co-owners sharing a mailbox) has
-not been run to test whether multiple strings represent one party.
+**6. Private ownership is diffuse.** rc2 sweep: 31,937 owners hold 108,040 parcels at 2+ parcels any zips; 729 owners hold 20,544 at 10+ parcels and 2+ ZIPs. Public holdings are concentrated in 3-4 legal entities; private holdings are the same aggregate split into hundreds. Even at the strictest threshold, private holdings roughly equal public holdings across ~200x more entities.
 
-## What cannot be answered
+**7. Mailing-address clustering is mostly buildings and mail drops.** 2,274 addresses in the graph have 3+ owners; 24,203 owners (36% of all 66,492) share a mailing address with at least two others. Classifying those 2,274 addresses by owner count and kind distribution: small_mixed 842 (37%), small_entity 670 (29%), small_household 267 (12%), mid_mixed 189, residential_building 184, commercial_drop 83, large_mixed 39. The largest addresses by owner count (553, 493, 364 owners) are a downtown Cleveland residential building, a Slavic Village residential building, and a Canton OH commercial mail drop of unrelated LLCs — not operator clusters. Small clusters (3-10 owners) are 78% of the total and are the only meaningful co-mailer signal. The same_mail edge in the graph is a correct string match but an incorrect inference of coordination for the 12% of addresses that are buildings or drops.
 
-- Beneficial ownership behind Delaware LLCs (requires deed signatures or
-  non-public filings)
-- Land bank board composition and conflicts of interest (public record,
-  not loaded)
-- Forfeiture pipeline control (requires county auditor/treasurer records)
-- Whether multiple owner strings represent one beneficial owner
-  (mailing-address clustering not yet run)
+**8. Co-mailer candidates are surfaced, not confirmed.** The dossier for a 40-parcel owner sharing mail with three LLCs correctly labels them small_entity, not confirmed connections. Testing a co-mailer cluster requires pulling deeds where those LLCs are the parties — not deeds where the target individual is grantee. The tool's output is a candidate list, and every candidate requires primary-source verification.
 
-## Known data issues
+## What cannot be answered from this data
 
-- Owner classifier has estimated 5–8% error, not measured against a
-  frozen test set
-- The SFR parcel count (251 unique) differs from the variant-inclusive
-  count (422); unique parcel IDs not yet verified across all owner
-  variants
-- Parcel-owner relationships are snapshots (current owner only), not
-  history
-- The 1,005 entry `labeled_pairs.json` mixes spelling variants with real
-  ownership changes; not usable as resolver training data without
-  relabeling
+- Beneficial ownership behind Delaware LLCs (requires deed signatures or non-public filings)
+- Parcel lifecycle beyond the last transfer (transfer source is a snapshot, one row per parcel)
+- Who controls the pipeline (LB board composition, disposition decisions, RFPs are public record but not loaded)
+- Whether specific co-mailer LLCs share control (requires deeds where those LLCs are the parties)
+- Whether owner strings with similar names are the same party (classifier has 5-8% error; resolver not deployed)
 
-## Reproduce
+## Corrections from this session
 
-Scripts not yet in repo. To be added at `scripts/cuyahoga/`:
-- download transfers
-- merge + derive unified pickle
-- classifier application
-- reconciliation and threshold sweep
+Five untraced claims were corrected. Candidate hypothesis to primary source to assertion is the pattern.
+
+1. **17:1 public-to-private retired.** Denominator (1,064) was hand-curated, not measured. Minimum measurable private scattered-site is 20,544 parcels. Real ratio at 10+ parcels / 2+ ZIPs is 0.9:1, essentially parity.
+2. **"2% release" was wrong.** Was graph-vs-graph consistency, not release rate. Corrected to 20.8% released / 79.2% held (rc1, parcel-level, last transfer).
+3. **"60% held >10 years" was wrong.** Measured from first_date not last_date. Corrected to 48.9% not re-acquired since before 2016.
+4. **"Third Shamsshare spelling" does not exist.** Two nodes, not three.
+5. **"Shares mail with 3 LLCs = cluster" was partly refuted and partly reframed.** The three LLCs are small_entity addresses, not commercial drops. The one real signal was the two-owner spelling variation (same_name_variant). The earlier deed-based "cluster refuted" claim was logically wrong (signatories read were seller-side). The mail-address resolution is the part that holds.
 
 ## Data sources
 
-- Cuyahoga County Fiscal Office — ArcGIS REST FeatureServer
-- Ohio Secretary of State — business search (top 14 entities only)
+- Cuyahoga County Fiscal Office — ArcGIS REST FeatureServer, parcel fabric
+- Cuyahoga County Fiscal Office — transfer records via same service (last-transfer snapshot; full history not served)
+- Ohio Secretary of State — business search, manually checked for top 14
 - SEC EDGAR — Form 4 filings for PulteGroup and NVR
+
+## Reproduce
+
+cd ~/Desktop/OSI/Open-Source-Intelligence
+python3 analysis/cuyahoga/s1.py    # LB inventory
+python3 analysis/cuyahoga/rc1.py   # hold/release rate
+python3 analysis/cuyahoga/rc2.py   # private-side sweep
+PYTHONPATH=src python3 -m osi.lookup "ALLY, SHAMSSHARE"
+
+Requires cuyahoga_unified.pkl, cuyahoga_transfers.pkl, and cuyahoga_transfers_raw.json on ~/Desktop/, produced by the loaders in src/osi/loaders/ and dl_transfers.py.
 
 ## What is not in the graph
 
-- Deed signatures (pierce Delaware nominees)
-- Campaign finance
-- Court records
-- Voter file
-- Beneficial ownership
-- Mailing-address clustering (planned)
-- Board and appointment records (planned)
+- Deed signatures (would pierce Delaware nominees)
+- Full parcel transfer history (would enable lifecycle)
+- Campaign finance (not loaded)
+- Court records (not loaded)
+- Voter file (not acquired, 7 dollars from BOE)
+- Out-of-county properties (Melissa Property API, paid)
+- Beneficial ownership (not publicly available for LLCs)
+- LB board membership and disposition decisions
