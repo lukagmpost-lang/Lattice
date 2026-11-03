@@ -229,3 +229,63 @@ if __name__ == "__main__":
     import sys
     q = " ".join(sys.argv[1:])
     print(render(find_person(q)))
+
+
+
+def render_ego(dossier, out_path=None):
+    """Render the 1-hop ego graph for a dossier. Saves PNG, returns path."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import networkx as nx
+
+    if "error" in dossier or "ambiguous" in dossier:
+        return None
+    G = load()
+    name = dossier["name"]
+    center = f"owner|{name.upper()}"
+    if center not in G:
+        # try to find by substring
+        for n in G.nodes:
+            if n.startswith("owner|") and name.upper() in n.upper():
+                center = n; break
+        else:
+            return None
+
+    # 1-hop subgraph: owner + direct neighbors
+    neighbors = list(G.neighbors(center))
+    sub = G.subgraph([center] + neighbors).copy()
+
+    if out_path is None:
+        safe = re.sub(r"[^A-Za-z0-9]+", "_", name)[:40]
+        out_path = os.path.expanduser(f"~/Desktop/ego_{safe}.png")
+
+    # color by node type
+    colors = []
+    sizes = []
+    for n in sub.nodes():
+        if n == center:
+            colors.append("#e63946"); sizes.append(900)
+        elif n.startswith("parcel|"):
+            colors.append("#a8dadc"); sizes.append(80)
+        elif n.startswith("mail|"):
+            colors.append("#f4a261"); sizes.append(200)
+        elif n.startswith("owner|"):
+            colors.append("#457b9d"); sizes.append(300)
+        else:
+            colors.append("#cccccc"); sizes.append(100)
+
+    pos = nx.spring_layout(sub, seed=42, k=0.6)
+    fig, ax = plt.subplots(figsize=(12, 12))
+    nx.draw_networkx_edges(sub, pos, ax=ax, alpha=0.15, width=0.5)
+    nx.draw_networkx_nodes(sub, pos, ax=ax, node_color=colors, node_size=sizes, alpha=0.9)
+    # label the center and any co-owners, not every parcel
+    label_nodes = {n: n.split("|",1)[1][:25] for n in sub.nodes()
+                   if n == center or n.startswith("owner|")}
+    nx.draw_networkx_labels(sub, pos, labels=label_nodes, ax=ax, font_size=7)
+    ax.set_title(f"Ego graph: {name}  ({len(neighbors)} neighbors)", fontsize=11)
+    ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
