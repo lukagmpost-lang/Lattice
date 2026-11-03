@@ -59,6 +59,7 @@ def find_person(query):
         if not n.startswith("owner|"): continue
         n_norm = re.sub(r"[^A-Z0-9 ]", " ", _u(n[6:])).strip()
         n_norm = re.sub(r"\s+", " ", n_norm)
+        if G.nodes[n].get("queryable") is False: continue
         ps = [p for p in G.neighbors(n) if G.nodes[p].get("type") == "parcel"]
         if not ps: continue
         if n_norm == q_norm:
@@ -179,9 +180,40 @@ def _dossier(node_key):
         "co_owners_same_mail": co_owners[:10],
         "co_owners_suppressed": suppressed,
         "transfers_out": transfers_out[:10],
+        "predicted_coowners": predict_coowners(node_key, 5),
         "what_i_cannot_answer": limits,
     }
 
+
+
+def predict_coowners(node_key, top_n=10):
+    """Adamic-Adar prediction of missing co_owner edges."""
+    import networkx as nx
+    G = load()
+    if node_key not in G: return []
+    immediate = set(G.neighbors(node_key)) | {node_key}
+    candidates = set()
+    for n2 in G.neighbors(node_key):
+        for n3 in G.neighbors(n2):
+            if n3 not in immediate and n3.startswith("owner|") and G.nodes[n3].get("queryable") is not False:
+                candidates.add((node_key, n3))
+    # score 2-hop candidates (things that might be missing)
+    if candidates:
+        scores = sorted(nx.adamic_adar_index(G, list(candidates)), key=lambda x: -x[2])
+        missing = [(n, s) for _, n, s in scores if s > 0.7][:top_n]
+    else:
+        missing = []
+    # existing co-owners: owners who share a parcel (not just a mail address)
+    center_parcels = set(p for p in G.neighbors(node_key) if p.startswith("parcel|"))
+    existing_coowners = []
+    for nb in G.neighbors(node_key):
+        if not nb.startswith("owner|"): continue
+        if G.nodes[nb].get("queryable") is False: continue
+        shared_parcels = center_parcels & set(p for p in G.neighbors(nb) if p.startswith("parcel|"))
+        if shared_parcels:
+            existing_coowners.append((nb, len(shared_parcels)))
+    existing_coowners.sort(key=lambda x: -x[1])
+    return {"predicted_missing": missing, "existing_coowners": existing_coowners[:top_n]}
 
 def render(dossier):
     if "error" in dossier: return dossier["error"]
@@ -214,6 +246,16 @@ def render(dossier):
             out.append(f"    {nm[:50]}  ({rel})")
     if dossier.get("co_owners_suppressed"):
         out.append(f"    ({dossier[chr(39)+chr(99)+chr(111)+chr(95)+chr(111)+chr(119)+chr(110)+chr(101)+chr(114)+chr(115)+chr(95)+chr(115)+chr(117)+chr(112)+chr(112)+chr(114)+chr(101)+chr(115)+chr(115)+chr(101)+chr(100)+chr(39)]} additional co-mailers at building/drop addresses, suppressed)")
+    pc = dossier.get("predicted_coowners")
+    if pc and isinstance(pc, dict):
+        if pc.get("existing_coowners"):
+            out.append("  co-owners (shared parcels):")
+            for nm, n_shared in pc["existing_coowners"][:5]:
+                out.append(f"    {n_shared}p  {nm[6:50]}")
+        if pc.get("predicted_missing"):
+            out.append("  predicted missing co-owners:")
+            for nm, sc in pc["predicted_missing"][:5]:
+                out.append(f"    {sc:.3f}  {nm[6:50]}")
     if dossier["transfers_out"]:
         out.append("  sold to:")
         for nm, w in dossier["transfers_out"][:5]:
