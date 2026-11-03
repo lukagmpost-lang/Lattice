@@ -254,7 +254,12 @@ def render_ego(dossier, out_path=None):
             return None
 
     neighbors = list(G.neighbors(center))
-    sub = G.subgraph([center] + neighbors).copy()
+    MAX_PARCELS = 60
+    parcels = [n for n in neighbors if n.startswith("parcel|")]
+    others = [n for n in neighbors if not n.startswith("parcel|")]
+    if len(parcels) > MAX_PARCELS:
+        parcels = parcels[:MAX_PARCELS]
+    sub = G.subgraph([center] + others + parcels).copy()
 
     if out_path is None:
         safe = re.sub(r"[^A-Za-z0-9]+", "_", name)[:40]
@@ -264,7 +269,7 @@ def render_ego(dossier, out_path=None):
     def node_color(n):
         if n == center: return "#e63946"
         if n.startswith("parcel|"): return "#a8dadc"
-        if n.startswith("mail|"): return "#2a9d8f"   # distinct from parcel address
+        if n.startswith("mail|"): return "#1d7874"   # distinct from parcel address
         if n.startswith("owner|"): return "#457b9d"
         return "#cccccc"
 
@@ -308,7 +313,7 @@ def render_ego(dossier, out_path=None):
     legend_handles = [
         mpatches.Patch(color="#e63946", label="center"),
         mpatches.Patch(color="#457b9d", label="owner"),
-        mpatches.Patch(color="#2a9d8f", label="mail node"),
+        mpatches.Patch(color="#1d7874", label="mail node"),
         mpatches.Patch(color="#a8dadc", label="parcel"),
         mpatches.Patch(color="#2a9d8f", label="same_mail edge"),
         mpatches.Patch(color="#e76f51", label="sold_to edge"),
