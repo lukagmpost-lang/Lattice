@@ -43,6 +43,8 @@ Third test: DEEN KALA deed pull. Seven documents were pulled from the Cuyahoga R
 
 Note on name resolution: the full legal name is 9LYVES AUTO INVESTMENTS AND CONSULTING GROUP LLC, not the truncated 9LYVES AUTO INVESTMENTS string in the graph. The co-mailer label the dossier prints is a shortened form; the full name appears only in the SOS record.
 
+**10. Out-of-state sellers are a real pattern in Cleveland deed transfers; out-of-state buyers are not.** The deed pull run against DEEN KALA OHIO HOLDING surfaced one purchase deed (19476627, recorded 05/18/2026) with California sellers: Elisa Ann Amaro and Joe Fransisco Alonso, notarized in Riverside County, California, conveying to an Ohio LLC as grantee. This is consistent with the prior session's deed pull, which found JAMSERIES using a Las Vegas suite and Deen Kala using a California residence. The observable signal is the out-of-state notarization: the seller did not travel to Ohio to close, which implies a remote/brokered transaction. Counterpoint: the Freedom Estates Ltd. document in the same pull (19476619) has an Ohio grantor (Duane E. Bremke, Managing Member) and an Ohio preparer (Mark F. Craig, Esq.), so the pattern is specifically on the seller side, not universal to all parties. Sample size is small (a handful of deeds from one pull); this is a candidate pattern for further testing, not a measured rate. Testing it would require pulling a random sample of recent Cuyahoga deeds and classifying grantor notarization state.
+
 ## What cannot be answered from this data
 
 - Beneficial ownership behind Delaware LLCs (requires deed signatures or non-public filings)
