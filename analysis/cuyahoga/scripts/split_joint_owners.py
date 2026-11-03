@@ -11,17 +11,33 @@ def _u(s): return "" if s is None else re.sub(r"\s+"," ",str(s)).strip().upper()
 G = pickle.load(open(os.path.expanduser("~/Desktop/cuyahoga_unified.pkl"), "rb"))
 
 # Patterns tried in order. Each returns (name1, name2) or None.
+CORP_TOKENS = ('LLC', 'LTD', 'INC', 'CORP', 'LP', 'LLP', 'CO', 'COMPANY', 'TRUST', 'PARTNERS')
+
+def _is_corp(name):
+    n = name.upper()
+    return any(t in n.split() or t in n for t in CORP_TOKENS)
+
+def _surname(name):
+    # return the part before the first comma (LAST in LAST, FIRST)
+    return name.split(',', 1)[0].strip() if ',' in name else None
+
 def split_two(a, b):
     a, b = a.strip().rstrip(','), b.strip().rstrip(',')
+    # reject if either side is a single letter or corporate entity
+    if len(a) < 2 or len(b) < 2: return None
+    if _is_corp(a) or _is_corp(b): return None
     # both look like LAST, FIRST
     if ',' in a and ',' in b:
         return (a, b)
     # first has comma (last, first), second is single-word (spouse first name)
     if ',' in a and ' ' not in b and b.isalpha():
-        return (a, b)
+        # infer surname from first party
+        sn = _surname(a)
+        return (a, f'{sn}, {b}' if sn else b)
     # first is single word, second has comma
     if ' ' not in a and a.isalpha() and ',' in b:
-        return (a, b)
+        sn = _surname(b)
+        return (f'{sn}, {a}' if sn else a, b)
     return None
 
 def split_owner(name):
