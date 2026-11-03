@@ -232,11 +232,13 @@ if __name__ == "__main__":
 
 
 
+
 def render_ego(dossier, out_path=None):
     """Render the 1-hop ego graph for a dossier. Saves PNG, returns path."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
     import networkx as nx
 
     if "error" in dossier or "ambiguous" in dossier:
@@ -245,14 +247,12 @@ def render_ego(dossier, out_path=None):
     name = dossier["name"]
     center = f"owner|{name.upper()}"
     if center not in G:
-        # try to find by substring
         for n in G.nodes:
             if n.startswith("owner|") and name.upper() in n.upper():
                 center = n; break
         else:
             return None
 
-    # 1-hop subgraph: owner + direct neighbors
     neighbors = list(G.neighbors(center))
     sub = G.subgraph([center] + neighbors).copy()
 
@@ -260,30 +260,62 @@ def render_ego(dossier, out_path=None):
         safe = re.sub(r"[^A-Za-z0-9]+", "_", name)[:40]
         out_path = os.path.expanduser(f"~/Desktop/ego_{safe}.png")
 
-    # color by node type
-    colors = []
-    sizes = []
-    for n in sub.nodes():
-        if n == center:
-            colors.append("#e63946"); sizes.append(900)
-        elif n.startswith("parcel|"):
-            colors.append("#a8dadc"); sizes.append(80)
-        elif n.startswith("mail|"):
-            colors.append("#f4a261"); sizes.append(200)
-        elif n.startswith("owner|"):
-            colors.append("#457b9d"); sizes.append(300)
+    # Node colors by type — five categories
+    def node_color(n):
+        if n == center: return "#e63946"
+        if n.startswith("parcel|"): return "#a8dadc"
+        if n.startswith("mail|"): return "#2a9d8f"   # distinct from parcel address
+        if n.startswith("owner|"): return "#457b9d"
+        return "#cccccc"
+
+    def node_size(n):
+        if n == center: return 900
+        if n.startswith("parcel|"): return 80
+        if n.startswith("mail|"): return 220
+        if n.startswith("owner|"): return 300
+        return 100
+
+    colors = [node_color(n) for n in sub.nodes()]
+    sizes = [node_size(n) for n in sub.nodes()]
+
+    # Edge colors by relation
+    edge_groups = {"same_mail": [], "sold_to": [], "other": []}
+    for u, v in sub.edges():
+        rel = sub[u][v].get("relation", "")
+        if rel == "same_mail" or (u.startswith("mail|") or v.startswith("mail|")):
+            edge_groups["same_mail"].append((u, v))
+        elif rel == "sold_to":
+            edge_groups["sold_to"].append((u, v))
         else:
-            colors.append("#cccccc"); sizes.append(100)
+            edge_groups["other"].append((u, v))
 
     pos = nx.spring_layout(sub, seed=42, k=0.6)
-    fig, ax = plt.subplots(figsize=(12, 12))
-    nx.draw_networkx_edges(sub, pos, ax=ax, alpha=0.15, width=0.5)
-    nx.draw_networkx_nodes(sub, pos, ax=ax, node_color=colors, node_size=sizes, alpha=0.9)
-    # label the center and any co-owners, not every parcel
+    fig, ax = plt.subplots(figsize=(14, 14))
+
+    edge_colors = {"same_mail": "#2a9d8f", "sold_to": "#e76f51", "other": "#cccccc"}
+    for kind, edges in edge_groups.items():
+        if edges:
+            nx.draw_networkx_edges(sub, pos, edgelist=edges, ax=ax,
+                                   edge_color=edge_colors[kind], alpha=0.35, width=0.8)
+
+    nx.draw_networkx_nodes(sub, pos, ax=ax, node_color=colors, node_size=sizes, alpha=0.95)
+
     label_nodes = {n: n.split("|",1)[1][:25] for n in sub.nodes()
                    if n == center or n.startswith("owner|")}
     nx.draw_networkx_labels(sub, pos, labels=label_nodes, ax=ax, font_size=7)
-    ax.set_title(f"Ego graph: {name}  ({len(neighbors)} neighbors)", fontsize=11)
+
+    # Legend
+    legend_handles = [
+        mpatches.Patch(color="#e63946", label="center"),
+        mpatches.Patch(color="#457b9d", label="owner"),
+        mpatches.Patch(color="#2a9d8f", label="mail node"),
+        mpatches.Patch(color="#a8dadc", label="parcel"),
+        mpatches.Patch(color="#2a9d8f", label="same_mail edge"),
+        mpatches.Patch(color="#e76f51", label="sold_to edge"),
+    ]
+    ax.legend(handles=legend_handles, loc="upper right", fontsize=8, framealpha=0.9)
+
+    ax.set_title(f"Ego graph: {name}  ({len(neighbors)} neighbors)", fontsize=12)
     ax.axis("off")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
