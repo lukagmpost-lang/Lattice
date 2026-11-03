@@ -1,0 +1,281 @@
+idx,shape,name,auto_label,final_label
+1,person_comma,"BENHADDOU, ABDELAZIZ",person,person
+2,person_comma,"LAUREANO, JOHN",person,person
+3,person_comma,"WALLACE, SALONDRA C.",person,person
+4,person_comma,"COMBS, BRET",person,person
+5,person_comma,"DILLON, JEROME ET AL",person,person
+6,person_comma,"BAILEY, LYNDA, BAILEY, MICHAEL AND ROSARIO, VICTOR M.",person,person
+7,person_comma,"HUSSAIN, NAZLEEN A.",person,person
+8,person_comma,"WINSTON, BERNELLA MARIE",person,person
+9,person_comma,"HILLMAN, JEROME",person,person
+10,person_comma,"BROWN, RAYVON",person,person
+11,person_comma,"RIVERA, KELVIN",person,person
+12,person_comma,"KERMODE, DAVID WHITNEY",person,person
+13,person_comma,"WEST, CHARISE LAMAE",person,person
+14,person_comma,"RANIERI, ANTOINETTE",person,person
+15,person_comma,"BOBBERA, JON",person,person
+16,person_comma,"MOTT, STEPHEN C.",person,person
+17,person_comma,"JOHNSON, JAMES K.",person,person
+18,person_comma,"DUSKY, WENDY L",person,person
+19,person_comma,"HENDERSON, KENNETH R",person,person
+20,person_comma,"CURLEY, MATTHEW",person,person
+21,person_comma,"MINNILLO, PATRICK",person,person
+22,person_comma,"LEMASTERS, BETH A.",person,person
+23,person_comma,"WOLFGANG, SUSAN",person,person
+24,person_comma,"SILVESTRO, MICHAEL A.",person,person
+25,person_comma,"CLEMSON, CHARLYNN O",person,person
+26,person_comma,"WEBB, LISA",person,person
+27,person_comma,"HOOGENBOOM, KYLE J. AND HOOGENBOOM, BRITTANY M.",person,person
+28,person_comma,"GIBSON, RICHARD M.",person,person
+29,person_comma,"FENOS, JASON",person,person
+30,person_comma,"SVEC, MICHAEL -SUC TR",person,person
+31,person_joint,"NASRALLAH, VIRGINIA & TONY",person,person
+32,person_joint,"KEETON, LEIGH A & KEETON, ZACHARY",person,person
+33,person_joint,"ANDERSON, VIRGIL & DEBRA",person,person
+34,person_joint,"ZARIC, TIJANA & NADA",person,person
+35,person_joint,"WILLIAMS, ELIZABETH M & GUY, ERIC W",person,person
+36,person_joint,"CLARK, JASON A & CLARK, LAUREN E",person,person
+37,person_joint,"VINSON, BEN III & FORTENBERRY, YOLANDA M",person,person
+38,person_joint,"MALAKOOTI, BEHNAM B & MINA BARFEI",person,person
+39,person_joint,"WHITENER, NOAH STEVEN & MEREDITH ANN",person,person
+40,person_joint,"GRIFFITH, KERRY & JANET",person,person
+41,person_joint,"LIN, YENCHIH & JING",person,person
+42,person_joint,"SALVATORE, ANGELO & GLORIA",person,person
+43,person_joint,"PAUL, PATRICIA D & FRANK J",person,person
+44,person_joint,"MCCUE, MARK & BARBARA",person,person
+45,person_joint,"NULL, ANDREA, DEVINNA , CORRINE & SHERRI",person,person
+46,person_joint,"TORRES, VERONICA & JULIO V",person,person
+47,person_joint,"STOVER, ALMA JOYCE & KING, ALSHAH",person,person
+48,person_joint,"O'NEIL, SHAWN & LAURA",person,person
+49,person_joint,"ROBSON, CARL A. & SENAIT S.",person,person
+50,person_joint,"OLSEN-HASEK, SONYA & GARY HOLMES",person,person
+51,person_joint,"RAHMAN, MASUDUR & MAMTAZ, SUBRINA",person,person
+52,person_joint,"LIPSCOMB, RONALD B & LAYNE, VIRGINIA",person,person
+53,person_joint,"HENDERSON, FANNIE & DWAYNE",person,person
+54,person_joint,"JONES, ANTONIO & MICHAEL",person,person
+55,person_joint,"RAHMAN, SAQIFUR & TAHIR, HIRA",person,person
+56,person_joint,"RODRIGUEZ, ELENA & FLORES, ISMAEL J.",person,person
+57,person_joint,"JACKSON, TYRONE & KETURA",person,person
+58,person_joint,"PRATER, JAMMIE & JENNIFER",person,person
+59,person_joint,"HUTCHINSON, STEPHANIE & BAIN",person,person
+60,person_joint,"PANKRATZ, CORY & AARON R",person,person
+61,trustee,"MURPHY, IAN & MOLLY M CO-TRUSTEES",trust,trust
+62,trustee,"DAUNCH, TIMOTHY J. TRUSTEE",trust,trust
+63,trustee,"DELIBERATO, MARILYN A. & MATTHEW D. - CO-TRUSTEES",trust,trust
+64,trustee,"SHUSKEY, GARY TRUSTEE",trust,trust
+65,trustee,"DRELLISHAK, THOMAS & KERRI--TRUSTEES",trust,trust
+66,trustee,"ALAMIR, SAMER TRUSTEE",trust,trust
+67,trustee,T&I UNLIMITED LLC TRUSTEE,entity,entity
+68,trustee,"LORIA, FRANK J. TRS. AND LORIA, DAVID A. TRS.",trust,trust
+69,trustee,"EULINBERG, LEANNA (TRS)",trust,trust
+70,trustee,"BOSWAY, THOMAS W. TRS.",trust,trust
+71,trustee,"MINOR, WILLIAM C. SR., TRS.",trust,trust
+72,trustee,"WEBB, SONYA D. & ANTHONY D.-TRS",trust,trust
+73,trustee,"SWASEY, BRETT W. - TRUSTEE",trust,trust
+74,trustee,"GAZGAD, KEVIN A. & KENNETH D. TRUSTEES",unclear,unclear
+75,trustee,"RICCI, MARY TRUSTEE",trust,trust
+76,trustee,OVERTIME LLC TRUSTEE,entity,entity
+77,trustee,"HUMPHREYS, RICHARD M TRS",trust,trust
+78,trustee,SCIUVA JAMES R & KATHERINE TRUSTEES,unclear,unclear
+79,trustee,"WAINWRIGHT, PATRICIA TRUSTEE",trust,trust
+80,trustee,"BENINGO, FRANK TRUSTEE",trust,trust
+81,trustee,"KOVAL, GREGORY TRS.",trust,trust
+82,trustee,"POUSSART, WAYNE R & KIMBERLY E TRUSTEES",unclear,unclear
+83,trustee,"REMIGNANTI , CHRIS D TRUSTEE",trust,trust
+84,trustee,"KLEPSKY, THOMAS M.-TRS",trust,trust
+85,trustee,"DEA, JOSEPH A. TRS.",trust,trust
+86,trustee,"OFFUTT, KATHERINE B (TRS)",trust,trust
+87,trustee,"PELLILLO, GENE D. TRS",trust,trust
+88,trustee,"PINZONE, BARBARA A. TRUSTEE",trust,trust
+89,trustee,"BAYZIE, SAMUEL S-TRUSTEE",trust,trust
+90,trustee,"JANOS, TIMOTHY B & DONNA L (CO TRS)",trust,trust
+91,trustee,"GOLDBERG, LARRY P TRUSTEE",trust,trust
+92,trustee,"HEMPHILL, SONDRA G. TRUSTEE",trust,trust
+93,trustee,"JOURILES, MICHELE R. & NICHOLAS J. CO-TRUSTEES",trust,trust
+94,trustee,"HERNANDEZ, JUAN FRANCISCO & SUSAN MARIE TRUSTEES",unclear,unclear
+95,trustee,RAISA LERNER & BORIS GLINER CO-TRUSTEES,trust,trust
+96,trustee,"ROZNOVSKY, RICHARD J. - TRUSTEE",trust,trust
+97,trustee,"MOONEY, LOUISE FRAZER TRS",trust,trust
+98,trustee,BAURK GEORGE P.-TRUSTEE,trust,trust
+99,trustee,NORTHERN TRUST CO TRUSTEE,entity,entity
+100,trustee,"BRIGGS, ROBERT W.-TRUSTEE",trust,trust
+101,trustee,"BOWLES, ALICE L., TRUSTEE",trust,trust
+102,trustee,"HAYGOOD, GREGORY N & OLGA Z TRS",trust,trust
+103,trustee,"GATTO, CATHERINE (TRUSTEE)",trust,trust
+104,trustee,"SKYES, PAUL J. CO-TRS. AND SYKES, LORRAINE L. CO-TRS.",trust,trust
+105,trustee,"GILBERT, ANN C TRUSTEE",trust,trust
+106,trustee,"KRAMER, DAVID J.- TRUSTEE",trust,trust
+107,trustee,"ELLETT, SIMON A -TRUSTEE & BALIC, ANITA-TRUSTEE",trust,trust
+108,trustee,"NUKTA, E DEAN TRS",trust,trust
+109,trustee,"SYED, ISHAQ TRUSTEE",trust,trust
+110,trustee,"HARMS, THOMAS F TRUSTEE OF THE THOMAS F HARMS LIVING T",trust,trust
+111,entity,"TWEEDIE INVESTMENTS, LLC.,",entity,entity
+112,entity,DWBH LLC,entity,entity
+113,entity,"RED WOOD RESIDENTIAL-OH, LLC",entity,entity
+114,entity,"MARLBORO ENTR LTD, LLC",entity,entity
+115,entity,"BRIDGEPORT HOMEOWNERS ASSOCIATION, INC",entity,entity
+116,entity,49 HAMILTON LLC,entity,entity
+117,entity,FAMILY 3 LLC,entity,entity
+118,entity,"LINCO PROPERTIES, LLC",entity,entity
+119,entity,"THOTH'S SEAL, LLC.",entity,entity
+120,entity,"PEPPER ROSE, LLC",entity,entity
+121,entity,"PIXIELAND, LLC",entity,entity
+122,entity,KO-PRO 01 LLC,entity,entity
+123,entity,3620 SUPERIOR AVE. LLC,entity,entity
+124,entity,ZTT LLC,entity,entity
+125,entity,121 LARCHMERE INVESTORS LLC,entity,entity
+126,entity,OFERELLA LLC,entity,entity
+127,entity,CCLRC CLEVELAND IX LLC,entity,entity
+128,entity,CARRINGTON COURT RESIDENTIAL LLC,entity,entity
+129,entity,"GUARDIAN FUND, LLC",entity,entity
+130,entity,BRLN LLC,entity,entity
+131,entity,FUJI HOMES CLEVELAND LLC,entity,entity
+132,entity,MONEY TREE PROPERTIES LLC,entity,entity
+133,entity,RIVERSIDE AVENUE FRIENDS LLC,entity,entity
+134,entity,"NEW DIRECTION IRA, INC. FBO BARBARA A. EVANISH IRA",entity,entity
+135,entity,"WL INVESTMENTS, LLC",entity,entity
+136,entity,"4823 SNOW , LLC",entity,entity
+137,entity,"MORELAND BENTLEYVILLE ROAD, LLC.",entity,entity
+138,entity,JAKE GROUP LLC,entity,entity
+139,entity,"HELENRICHDAN, LLC",entity,entity
+140,entity,"NEW PROSPECT INVESTORS LLC,",entity,entity
+141,entity,JJ HELPING HANDS LLC,entity,entity
+142,entity,"WHITE LABEL PROPERTIES, LLC",entity,entity
+143,entity,1828 WESTCOAST INVESTMENTS INC,entity,entity
+144,entity,ROCKSIDE EQUITIES LLC,entity,entity
+145,entity,11509 HEADLEY LLC,entity,entity
+146,entity,DMB LIVING LLC,entity,entity
+147,entity,"NFS INTEREST, LLC",entity,entity
+148,entity,WALWORTH PHASE 2 LLC,entity,entity
+149,entity,SOLARUM LLC AND FONTAN LLC,entity,entity
+150,entity,TRIPLE JAY REALTY LLC,entity,entity
+151,government,BOARD OF EDUCATION C S D,government,government
+152,government,"HUFFMAN EDUCATION & REAL ESTATE, LLC",entity,entity
+153,government,STATE OF OHIO FORF CV# 998386,government,government
+154,government,THE CITY OF BRECKSVILLE,government,government
+155,government,THE CITYOF BROOK PARK,government,government
+156,government,G & M REAL ESTATE HOLDINGS LLC,entity,entity
+157,government,CLEVELAND CITY OF LB91,government,government
+158,government,"SASS REAL ESTATE, LLC.",entity,entity
+159,government,SLAVIC VILLAGE INVESTMENT GROUP LLC,entity,entity
+160,government,STATE OF OHIO FORF CV# 992674,government,government
+161,government,PARMA CITY SCHOOL DISTRICT,government,government
+162,government,STATE OF OHIO FORF CV# 123204,government,government
+163,government,"THE CITY OF OLMSTED FALLS, OHIO",government,government
+164,government,"NEWBURGH HTS, VILLAGE OF",government,government
+165,government,"SLAVIC VILLAGE GREEN HOMES I, LP",unclear,unclear
+166,government,AG REAL ESTATE AND DEVELOPMENT LLC,entity,entity
+167,government,MOISH AND IRIS REAL ESTATE LLC,entity,entity
+168,government,OLMSTED FALLS VILLAGE OF,government,government
+169,government,CITY SCAPE REAL ESTATE LLC,entity,entity
+170,government,STATE OF OHIO FORF CV# 101708,government,government
+171,person_nocomma,WARD EVA E,person,person
+172,person_nocomma,BRAKE SHEROLD,person,person
+173,person_nocomma,MIDDLEBURG PLAZA,person,person
+174,person_nocomma,O'NEILL KEVIN M,person,person
+175,person_nocomma,MET PK DIST,government,government
+176,person_nocomma,SOUTH EUCLID LYNDHURST BD OF,unclear,unclear
+177,person_nocomma,FALLS POINTE CLUSTER HOUSING ASSC.,unclear,unclear
+178,person_nocomma,SEABORN KNOKITA,person,person
+179,person_nocomma,TRAILS LANDING HOMEOWNERS,person,person
+180,person_nocomma,STRIZZI DOMINIC J.,person,person
+181,person_nocomma,FAMICOS FOUNDATION,entity,entity
+182,person_nocomma,WALKER RAYMOND J,person,person
+183,person_nocomma,BETTS L.P.,entity,entity
+184,person_nocomma,FRIENDSHIP BAPTIST CHURCH,entity,entity
+185,person_nocomma,BALAZS ANDREW J-TR.,person,person
+186,person_nocomma,PARAGON TEC,person,person
+187,person_nocomma,PNC BANK NA,entity,entity
+188,person_nocomma,SCHENKEL THOMAS R.,person,person
+189,person_nocomma,TUDOR HOUSE CONDOMINIUM ASSOCIATION,entity,entity
+190,person_nocomma,PONTREMOLI ANITA L,person,person
+191,person_nocomma,SOMMERFELD RUSSELL,person,person
+192,person_nocomma,RIVERSIDE CHURCH OF GOD,entity,entity
+193,person_nocomma,STREFAS LOUIS D.,person,person
+194,person_nocomma,CLEVE PUBLIC LIBRARY,government,government
+195,person_nocomma,GERSTENFELD SOL L,person,person
+196,person_nocomma,SENOWITZ ROBERTA ELLEN,government,government
+197,person_nocomma,CHR LAKESIDE BAPTIST OF CLEV,unclear,unclear
+198,person_nocomma,REACH COUNSELING SERVICES,person,person
+199,person_nocomma,EVANS SOLUTIONS GROUP,entity,entity
+200,person_nocomma,CLEVELAND SOCIETY,entity,entity
+201,person_nocomma,MC BRIDE KATHLEEN,person,person
+202,person_nocomma,MYRICKS CLEOPHAS,person,person
+203,person_nocomma,ST THERESE OF THE CHILD,unclear,unclear
+204,person_nocomma,WESTERN RESERVE UNIV,person,person
+205,person_nocomma,LAKEVIEW CHURCH OF GOD,entity,entity
+206,person_nocomma,ST THEODOSIUS CATHEDRAL..,person,person
+207,person_nocomma,SEE PARCEL 00730014,placeholder,placeholder
+208,person_nocomma,THE METROPOLITAN CHURCH OF CHRIST,entity,entity
+209,person_nocomma,SOUTH EUCLID AUTO REPAIR,person,person
+210,person_nocomma,MENEFEE GERTHA,person,person
+211,person_amp,HOFELICH ROBERT T & BARBARA,person,person
+212,person_amp,STRACHAN NMITCHELL L & TARA F,person,person
+213,person_amp,R & M RESOURCES,person,person
+214,person_amp,TANCREDI RAYMOND & CHARBONEAU DAVID W.,person,person
+215,person_amp,ENGELMANN WILLIAM C. & ARTHUR C.,person,person
+216,person_amp,G & M RLTY CO,person,person
+217,person_amp,FRANKLIN DOUGLAS A & CYNTHIA,person,person
+218,person_amp,CHURCH OF GOD & SAINTS,entity,entity
+219,person_amp,MISENKO M A & R DANIEL,person,person
+220,person_amp,A J TOMAN & SONS,person,person
+221,person_amp,LAMP ANDREW M & BARBARA A,person,person
+222,person_amp,GERMAN JOHNNIE L & ISABELLE,person,person
+223,person_amp,ADKINS-BUTAS . & CANDACE L.,person,person
+224,person_amp,STOLZ JULIEANNE & RONALD E.,person,person
+225,person_amp,BRADY DONALD E & KIM L,person,person
+226,person_amp,YURCHENKO ANTON & MARYNA,person,person
+227,person_amp,JPC & MRB,person,person
+228,person_amp,RUFF DONALD & HERNANDEZ RAYONITA,person,person
+229,person_amp,GULLATTA TIMOTHY & ROSEMARIE,person,person
+230,person_amp,HARTUNG SUSAN & KYLE,person,person
+231,person_amp,BARCH JAMES L & MARY L,person,person
+232,person_amp,BERGMAN ROLF S & M L,person,person
+233,person_amp,THOMAS LOUIS B & NANCY,person,person
+234,person_amp,SMITH CHARLES L & AMELIA L,person,person
+235,person_amp,JASON S. WALKER & TARAKA GOODMAN-ROBINSON-WALKER,person,person
+236,person_amp,GREGG PHILIP R & PAULA,person,person
+237,person_amp,GOODE JOHN F & JACQUELYNNE J,person,person
+238,person_amp,KAUL CHARLES A & JUDITH A,person,person
+239,person_amp,WINDSOR REALTY & MANA,entity,entity
+240,person_amp,HUDAK ANDREW F IV & NATALIE K,person,person
+241,single_token,3MK,unclear,unclear
+242,single_token,BRYANSPENCE,unclear,unclear
+243,single_token,IPLANGROUP,entity,entity
+244,single_token,SC,unclear,unclear
+245,single_token,TK,unclear,unclear
+246,single_token,DANIEL,unclear,unclear
+247,single_token,B.K.,unclear,unclear
+248,single_token,G.C/S.C.,unclear,unclear
+249,single_token,ROSEMARY,unclear,unclear
+250,single_token,U.S.A,government,government
+251,single_token,NONE,placeholder,placeholder
+252,single_token,JJ,unclear,unclear
+253,single_token,CMHA,government,government
+254,single_token,LB,government,government
+255,single_token,DK,unclear,unclear
+256,single_token,NHI,government,government
+257,single_token,LSK,unclear,unclear
+258,single_token,JK,unclear,unclear
+259,single_token,BF,unclear,unclear
+260,single_token,C.M.H.A.,government,government
+261,person_etal,ROBERTS IMOGENE W ET AL,person,person
+262,person_etal,SKUFCA JULIANE ET AL,person,person
+263,person_etal,MCLENDON CLAIRETTA ET AL,person,person
+264,person_etal,JOHNSON CINSEREE ET AL,person,person
+265,person_etal,CASE F G HALL ET AL,person,person
+266,person_etal,RAINES STACY ET AL,person,person
+267,person_etal,WYSE JENNIFER B. ET AL,person,person
+268,person_etal,CROFTCHECK ROBERT J JR ET AL,person,person
+269,hard,"ALVA, MARIA (TRUSTEE)",trust,trust
+270,hard,"NOURI, ALI & GERI- CO TRUSTEES",unclear,unclear
+271,hard,"MCGUIRE, LINDA J.- TRUSTEE",trust,trust
+272,hard,ISSENMANN CLARENCE,unclear,unclear
+273,hard,MUNIZ RICARDO,unclear,unclear
+274,hard,PARMA ESTATES MHC,entity,entity
+275,hard,CLEVELAND CLINIC HEALTH SYSTEM EAST REGION ETAL,entity,entity
+276,hard,VILLAGE OF MAYFIELD,government,government
+277,hard,CITY OF CLEVELAND,government,government
+278,hard,YELDER HORACE & ROSE,unclear,unclear
+279,hard,THE MOST REVEREND EDWARD C. MALESIC,unclear,unclear
+280,hard,"HENRIETTA HOMES CLEVELAND, L.P.",entity,entity
