@@ -27,7 +27,19 @@ Cuyahoga County has a public land bank system and a dispersed private property m
 
 **7. Mailing-address clustering is mostly buildings and mail drops.** 2,274 addresses in the graph have 3+ owners; 24,203 owners (36% of all 66,492) share a mailing address with at least two others. Classifying those 2,274 addresses by owner count and kind distribution: small_mixed 842 (37%), small_entity 670 (29%), small_household 267 (12%), mid_mixed 189, residential_building 184, commercial_drop 83, large_mixed 39. The largest addresses by owner count (553, 493, 364 owners) are a downtown Cleveland residential building, a Slavic Village residential building, and a Canton OH commercial mail drop of unrelated LLCs — not operator clusters. Small clusters (3-10 owners) are 78% of the total and are the only meaningful co-mailer signal. The same_mail edge in the graph is a correct string match but an incorrect inference of coordination for the 12% of addresses that are buildings or drops.
 
-**8. Co-mailer candidates are surfaced, not confirmed.** The dossier for a 40-parcel owner sharing mail with three LLCs correctly labels them small_entity, not confirmed connections. Testing a co-mailer cluster requires pulling deeds where those LLCs are the parties — not deeds where the target individual is grantee. The tool's output is a candidate list, and every candidate requires primary-source verification.
+**8. Co-mailer candidates are surfaced, not confirmed.** The dossier for a 40-parcel owner sharing mail with three LLCs correctly labels them small_entity, not confirmed connections. Testing a co-mailer cluster requires pulling deeds where those LLCs are the parties — not deeds where the target individual is grantee. The tool's output is a candidate list, and every candidate requires primary-source verification. Two primary-source tests have now been run against the co-mailer cluster; both came back null (see Finding 9).
+
+**9. Co-mailer cluster, SOS statutory-agent test (null).** The three small_entity LLCs sharing a mailing address with the 40-parcel owner were looked up in the Ohio SOS business registry (businesssearch.ohiosos.gov). Statutory agents:
+
+| LLC | Entity # | Statutory Agent | Agent Address | Filed |
+|---|---|---|---|---|
+| 9LYVES AUTO INVESTMENTS AND CONSULTING GROUP LLC | 5463115 | KAREN C. WILLIAMS | 25606 BRECKENRIDGE DR, EUCLID OH 44117 | 08/25/2025 |
+| FROMBY CONSTRUCTION | 1502433 | DEREK D FROMBY | 1487 TYLER, AKRON OH 44307 | 12/14/2016 |
+| DEEN KALA OHIO HOLDING | 5544885 | REGISTERED AGENTS INC | 6545 MARKET AVE N STE 100, CANTON OH 44721 | 01/27/2026 |
+
+Three different agents, three different cities, one of them a commercial agent service (REGISTERED AGENTS INC). No shared-agent cluster. FROMBY is an owner-operator entity (agent surname = entity name). 9LYVES uses an individual agent at a residential Euclid address, not a registered-agent firm. DEEN KALA's real principals are not in the public record because REGISTERED AGENTS INC is a pay-for-service agent. The same_mail edge remains a string match, not evidence of coordination. This is the second independent primary-source test of the co-mailer hypothesis (after the deed-signature test) and the second null result. Testing shared ownership rather than shared agent would require member/officer data, which Ohio does not publish in the free business search.
+
+Note on name resolution: the full legal name is 9LYVES AUTO INVESTMENTS AND CONSULTING GROUP LLC, not the truncated 9LYVES AUTO INVESTMENTS string in the graph. The co-mailer label the dossier prints is a shortened form; the full name appears only in the SOS record.
 
 ## What cannot be answered from this data
 
