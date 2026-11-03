@@ -181,6 +181,7 @@ def _dossier(node_key):
         "co_owners_suppressed": suppressed,
         "transfers_out": transfers_out[:10],
         "predicted_coowners": predict_coowners(node_key, 5),
+        "prediction_readiness": prediction_readiness(node_key),
         "what_i_cannot_answer": limits,
     }
 
@@ -214,6 +215,56 @@ def predict_coowners(node_key, top_n=10):
             existing_coowners.append((nb, len(shared_parcels)))
     existing_coowners.sort(key=lambda x: -x[1])
     return {"predicted_missing": missing, "existing_coowners": existing_coowners[:top_n]}
+
+
+def prediction_readiness(node_key):
+    """Check whether an owner has structure for link prediction.
+    Returns dict with three booleans and a summary."""
+    import networkx as nx
+    G = load()
+    if node_key not in G:
+        return {"has_coowners": False, "has_mail_cluster": False, "has_2hop_candidates": False, "summary": "node not in graph"}
+
+    # 1. co-owner edges (split joint strings)
+    center_parcels = set(p for p in G.neighbors(node_key) if p.startswith("parcel|"))
+    has_coowners = False
+    for nb in G.neighbors(node_key):
+        if not nb.startswith("owner|"): continue
+        if G.nodes[nb].get("queryable") is False: continue
+        shared = center_parcels & set(p for p in G.neighbors(nb) if p.startswith("parcel|"))
+        if shared:
+            has_coowners = True
+            break
+
+    # 2. mail co-owner edges
+    has_mail_cluster = any(
+        nb.startswith("mail|") and sum(1 for x in G.neighbors(nb) if x.startswith("owner|")) >= 2
+        for nb in G.neighbors(node_key)
+    )
+
+    # 3. 2-hop candidates above threshold
+    immediate = set(G.neighbors(node_key)) | {node_key}
+    candidates = set()
+    for n2 in G.neighbors(node_key):
+        for n3 in G.neighbors(n2):
+            if n3 not in immediate and n3.startswith("owner|") and G.nodes[n3].get("queryable") is not False:
+                candidates.add((node_key, n3))
+    has_2hop = False
+    if candidates:
+        scores = list(nx.adamic_adar_index(G, list(candidates)))
+        has_2hop = any(s > 0.7 for _, _, s in scores)
+
+    summary_parts = []
+    if has_coowners: summary_parts.append("co-owner edges")
+    if has_mail_cluster: summary_parts.append("mail cluster")
+    if has_2hop: summary_parts.append("2-hop candidates")
+
+    return {
+        "has_coowners": has_coowners,
+        "has_mail_cluster": has_mail_cluster,
+        "has_2hop_candidates": has_2hop,
+        "summary": ", ".join(summary_parts) if summary_parts else "no prediction structure"
+    }
 
 def render(dossier):
     if "error" in dossier: return dossier["error"]
@@ -261,18 +312,14 @@ def render(dossier):
         for nm, w in dossier["transfers_out"][:5]:
             out.append(f"    {w}p -> {nm[:50]}")
     out.append("")
-    out.append("  what this graph CANNOT tell you:")
+    pr = dossier.get("prediction_readiness")
+    if pr and not (pr.get("has_coowners") or pr.get("has_mail_cluster") or pr.get("has_2hop_candidates")):
+        out.append("  prediction readiness: no structure for link prediction")
+    if dossier["what_i_cannot_answer"]:
+        out.append("  what this graph CANNOT tell you:")
     for w in dossier["what_i_cannot_answer"]:
         out.append(f"    - {w}")
     return "\n".join(out)
-
-
-if __name__ == "__main__":
-    import sys
-    q = " ".join(sys.argv[1:])
-    print(render(find_person(q)))
-
-
 
 
 def render_ego(dossier, out_path=None):
@@ -382,3 +429,9 @@ def render_ego(dossier, out_path=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
+
+
+if __name__ == "__main__":
+    import sys
+    q = " ".join(sys.argv[1:])
+    print(render(find_person(q)))
