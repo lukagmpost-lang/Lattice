@@ -254,11 +254,21 @@ def render_ego(dossier, out_path=None):
             return None
 
     neighbors = list(G.neighbors(center))
+    MAX_TOTAL = 80
     MAX_PARCELS = 60
     parcels = [n for n in neighbors if n.startswith("parcel|")]
-    others = [n for n in neighbors if not n.startswith("parcel|")]
-    if len(parcels) > MAX_PARCELS:
-        parcels = parcels[:MAX_PARCELS]
+    owners = [n for n in neighbors if n.startswith("owner|")]
+    mails = [n for n in neighbors if n.startswith("mail|")]
+    # prefer owners with more edges to center (strongest relationships)
+    owners.sort(key=lambda n: -G[center][n].get("tx_weight", 1))
+    mails.sort(key=lambda n: -len([x for x in G.neighbors(n) if x.startswith("owner|")]))
+    budget = MAX_TOTAL
+    parcels = parcels[:min(len(parcels), MAX_PARCELS, budget)]
+    budget -= len(parcels)
+    owners = owners[:budget]
+    budget -= len(owners)
+    mails = mails[:budget]
+    others = owners + mails
     sub = G.subgraph([center] + others + parcels).copy()
 
     if out_path is None:
@@ -305,8 +315,12 @@ def render_ego(dossier, out_path=None):
 
     nx.draw_networkx_nodes(sub, pos, ax=ax, node_color=colors, node_size=sizes, alpha=0.95)
 
-    label_nodes = {n: n.split("|",1)[1][:25] for n in sub.nodes()
-                   if n == center or n.startswith("owner|")}
+    # label center + top 15 owners by parcel count; suppress the rest
+    owner_nodes = [n for n in sub.nodes() if n.startswith("owner|")]
+    owner_nodes.sort(key=lambda n: -sum(1 for x in G.neighbors(n) if x.startswith("parcel|")))
+    label_nodes = {center: center.split("|",1)[1][:25]}
+    for n in owner_nodes[:15]:
+        if n != center: label_nodes[n] = n.split("|",1)[1][:25]
     nx.draw_networkx_labels(sub, pos, labels=label_nodes, ax=ax, font_size=7)
 
     # Legend
