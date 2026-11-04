@@ -111,12 +111,22 @@ def _dossier(node_key):
     co_owners = []
     transfers_out = []
     transfers_in = []
+    corporate_roles = []
+    marriages = []
+    foreclosures = []
     suppressed = 0
     for nb in G.neighbors(node_key):
         if not nb.startswith("owner|"): continue
         e = G[node_key][nb]
         rel = e.get("relation", "?")
-        if rel == "same_mail":
+        
+        if "officer_of" in rel or "agent_of" in rel or "disputed_officer_of" in rel:
+            corporate_roles.append((nb[6:], rel, e.get("reliability", "?"), e.get("note", "")))
+        elif "married_to" in rel:
+            marriages.append((nb[6:], e.get("case_no", "")))
+        elif "defendant_in" in rel:
+            foreclosures.append(nb[6:])
+        elif rel == "same_mail":
             shared = [a for a in G.neighbors(node_key) if a.startswith("mail|") and G.has_edge(nb, a)]
             cls = _mail_class(G, shared[0]) if shared else "unknown"
             if cls in ("residential_building", "commercial_drop", "large_mixed"):
@@ -180,6 +190,12 @@ def _dossier(node_key):
         "co_owners_same_mail": co_owners[:10],
         "co_owners_suppressed": suppressed,
         "transfers_out": transfers_out[:10],
+        "corporate_roles": corporate_roles,
+        "marriages": marriages,
+        "foreclosures": foreclosures[:5],
+        "date_of_birth": d.get("date_of_birth"),
+        "residential_address": d.get("residential_address"),
+        "voter_match": d.get("voter_match"),
         "predicted_coowners": predict_coowners(node_key, 5),
         "prediction_readiness": prediction_readiness(node_key),
         "what_i_cannot_answer": limits,
@@ -277,6 +293,12 @@ def render(dossier):
     out = []
     out.append(f"{dossier['name']}  [{dossier['kind']}]")
     out.append("=" * 60)
+    
+    if dossier.get("date_of_birth"):
+        out.append(f"  DOB:     {dossier['date_of_birth']}")
+    if dossier.get("residential_address"):
+        out.append(f"  address: {dossier['residential_address']}")
+        
     out.append(f"  parcels: {dossier['total_parcels']}")
     out.append(f"  rank:    {dossier['rank_among_owners']}")
     if dossier["total_assessed_value"]:
@@ -287,6 +309,26 @@ def render(dossier):
         out.append("  top ZIPs:")
         for z, c in dossier["top_zips"]:
             out.append(f"    {c:>3}p in {z}")
+    if dossier.get("marriages"):
+        out.append("  married to:")
+        for nm, case in dossier["marriages"]:
+            out.append(f"    {nm[:45]}  (Case: {case})")
+
+    if dossier.get("corporate_roles"):
+        out.append("  corporate roles:")
+        for nm, rel, r, note in dossier["corporate_roles"]:
+            if "disputed" in rel:
+                out.append(f"    {nm[:40]}  (disputed claim, {r}-tier)")
+            else:
+                out.append(f"    {nm[:40]}  ({rel}, {r}-tier)")
+            if note:
+                out.append(f"      note: {note[:80]}...")
+                
+    if dossier.get("foreclosures"):
+        out.append("  foreclosure cases:")
+        for c in dossier["foreclosures"]:
+            out.append(f"    {c}")
+
     if dossier["mailing_addresses"]:
         out.append("  mailing:")
         for a in dossier["mailing_addresses"][:3]:

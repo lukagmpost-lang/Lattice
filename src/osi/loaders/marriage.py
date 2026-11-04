@@ -71,6 +71,34 @@ def search_case(page, case_str):
             parties.append(r['name'])
     return parties
 
+def find_or_create_person(G, name_str):
+    """Find an existing owner node by (Last, First), or create a new one."""
+    parts = name_str.split()
+    if len(parts) > 1:
+        last = parts[-1]
+        first = parts[0]
+        norm_name = f"{last}, {' '.join(parts[:-1])}"
+    else:
+        last = parts[0]
+        first = ""
+        norm_name = name_str
+        
+    # 1. Exact match
+    key = f"owner|{norm_name.upper()}"
+    if key in G:
+        return key
+        
+    # 2. Fuzzy match (Last, First) ignoring middle names
+    if last and first:
+        prefix = f"owner|{last.upper()}, {first.upper()}"
+        for n in G.nodes:
+            if n.startswith(prefix):
+                return n
+                
+    # 3. Create new node
+    G.add_node(key, type="owner", kind="person", name=norm_name.upper(), source="marriage_record")
+    return key
+
 def run_pipeline(limit=5):
     print("Loading graph...")
     G = pickle.load(open(os.path.expanduser("~/Desktop/cuyahoga_unified.pkl"), "rb"))
@@ -110,22 +138,8 @@ def run_pipeline(limit=5):
                         spouse1, spouse2 = parties
                         print(f"    Case {c}: {spouse1} <-> {spouse2}")
                         
-                        # Normalize names to 'LAST, FIRST' format for the graph
-                        # e.g., 'DEBORAH GORDON HALL' -> 'HALL, DEBORAH GORDON'
-                        def norm(nm):
-                            parts = nm.split()
-                            if len(parts) > 1:
-                                return f"{parts[-1]}, {' '.join(parts[:-1])}"
-                            return nm
-                            
-                        n1 = f"owner|{norm(spouse1)}"
-                        n2 = f"owner|{norm(spouse2)}"
-                        
-                        # Add nodes if they don't exist
-                        if n1 not in G:
-                            G.add_node(n1, type="owner", kind="person", name=norm(spouse1), source="marriage_record")
-                        if n2 not in G:
-                            G.add_node(n2, type="owner", kind="person", name=norm(spouse2), source="marriage_record")
+                        n1 = find_or_create_person(G, spouse1)
+                        n2 = find_or_create_person(G, spouse2)
                             
                         # Add edge
                         if not G.has_edge(n1, n2):
