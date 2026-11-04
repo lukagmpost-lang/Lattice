@@ -113,6 +113,7 @@ def _dossier(node_key):
     transfers_in = []
     corporate_roles = []
     marriages = []
+    litigations = []
     foreclosures = []
     suppressed = 0
     for nb in G.neighbors(node_key):
@@ -124,6 +125,8 @@ def _dossier(node_key):
             corporate_roles.append((nb[6:], rel, e.get("reliability", "?"), e.get("note", "")))
         elif "married_to" in rel:
             marriages.append((nb[6:], e.get("case_no", "")))
+        elif "litigated_with" in rel:
+            litigations.append((nb[6:], e.get("case_no", ""), e.get("caption", "")))
         elif "defendant_in" in rel:
             foreclosures.append(nb[6:])
         elif rel == "same_mail":
@@ -171,7 +174,7 @@ def _dossier(node_key):
     limits.extend([
         "Beneficial ownership (who is behind this name): requires deed signatures or Delaware filings",
         "Political donations: not loaded",
-        "Court records, code violations, evictions: not loaded",
+        "Code violations, evictions: not loaded",
         "Whether this name is a nominee for another party: untested",
     ])
 
@@ -192,6 +195,7 @@ def _dossier(node_key):
         "transfers_out": transfers_out[:10],
         "corporate_roles": corporate_roles,
         "marriages": marriages,
+        "litigations": litigations,
         "foreclosures": foreclosures[:5],
         "date_of_birth": d.get("date_of_birth"),
         "residential_address": d.get("residential_address"),
@@ -313,6 +317,13 @@ def render(dossier):
         out.append("  married to:")
         for nm, case in dossier["marriages"]:
             out.append(f"    {nm[:45]}  (Case: {case})")
+
+    if dossier.get("litigations"):
+        out.append("  court cases (litigated with):")
+        for nm, case, caption in dossier["litigations"][:10]:
+            out.append(f"    {nm[:40]:40s} (Case: {case})")
+            if caption:
+                out.append(f"      caption: {caption[:60]}...")
 
     if dossier.get("corporate_roles"):
         out.append("  corporate roles:")
