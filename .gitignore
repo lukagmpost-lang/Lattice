@@ -22,3 +22,5 @@ cuyahoga_*.graphml
 __pycache__/
 *.pyc
 *.py.bak
+data/*.jsonl
+data/*.json

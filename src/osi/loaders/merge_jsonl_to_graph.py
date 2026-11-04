@@ -1,8 +1,8 @@
 import pickle, os, json, re
 
 GRAPH_PATH = os.path.expanduser("~/Desktop/cuyahoga_unified.pkl")
-MARRIAGE_PATH = os.path.expanduser("~/Desktop/marriage_progress.jsonl")
-COURTS_PATH = os.path.expanduser("~/Desktop/courts_progress.jsonl")
+MARRIAGE_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/marriage_progress.jsonl")
+COURTS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/courts_progress.jsonl")
 
 ENTITY_KEYWORDS = {
     "BANK", "LLC", "INC", "CORP", "ASSN", "ASSOCIATION", "CO", "COMPANY", 
