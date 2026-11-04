@@ -1,0 +1,9 @@
+reliability_scoring.py is vendored from estorides 1.3.4
+(https://pypi.org/project/estorides/), module estorides_core.reliability_scoring.
+
+The file is unmodified. It is self-contained (stdlib only) and provides
+the NATO Admiralty confidence model (source reliability A-F x credibility 1-6,
+extended with source-type hierarchy, corroboration, and freshness decay)
+that OSI uses to score edges.
+
+Attribution: see the original estorides distribution for its license terms.
