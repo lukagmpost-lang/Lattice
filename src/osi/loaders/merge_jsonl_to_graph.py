@@ -108,7 +108,9 @@ def main():
                             n2 = find_or_create_person(G, other_party)
                             if n2 and n2 != node1:
                                 if not G.has_edge(node1, n2):
-                                    G.add_edge(node1, n2, relation="litigated_with", source="court_record", case_no=case_num, caption=row["caption"], reliability="A")
+                                    # Distinguish divorces (DR) from civil/civil debt (CV/JL)
+                                    rel = "divorced_from" if case_num.startswith("DR-") else "litigated_with"
+                                    G.add_edge(node1, n2, relation=rel, source="court_record", case_no=case_num, caption=row["caption"], reliability="A")
                                     added_courts += 1
                 except Exception as e:
                     pass

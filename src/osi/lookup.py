@@ -114,6 +114,7 @@ def _dossier(node_key):
     corporate_roles = []
     marriages = []
     litigations = []
+    divorces = []
     foreclosures = []
     suppressed = 0
     for nb in G.neighbors(node_key):
@@ -127,6 +128,8 @@ def _dossier(node_key):
             marriages.append((nb[6:], e.get("case_no", "")))
         elif "litigated_with" in rel:
             litigations.append((nb[6:], e.get("case_no", ""), e.get("caption", "")))
+        elif "divorced_from" in rel:
+            divorces.append((nb[6:], e.get("case_no", "")))
         elif "defendant_in" in rel:
             foreclosures.append(nb[6:])
         elif rel == "same_mail":
@@ -196,6 +199,7 @@ def _dossier(node_key):
         "corporate_roles": corporate_roles,
         "marriages": marriages,
         "litigations": litigations,
+        "divorces": divorces,
         "foreclosures": foreclosures[:5],
         "date_of_birth": d.get("date_of_birth"),
         "residential_address": d.get("residential_address"),
@@ -316,6 +320,11 @@ def render(dossier):
     if dossier.get("marriages"):
         out.append("  married to:")
         for nm, case in dossier["marriages"]:
+            out.append(f"    {nm[:45]}  (Case: {case})")
+
+    if dossier.get("divorces"):
+        out.append("  divorced from:")
+        for nm, case in dossier["divorces"]:
             out.append(f"    {nm[:45]}  (Case: {case})")
 
     if dossier.get("litigations"):
