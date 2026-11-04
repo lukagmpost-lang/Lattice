@@ -8,7 +8,7 @@ G = pickle.load(open(os.path.expanduser("~/Desktop/cuyahoga_unified.pkl"), "rb")
 print(f"loaded: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} edges")
 
 H = nx.Graph()
-SOCIAL_RELS = {"married_to", "divorced_from", "litigated_with"}
+SOCIAL_RELS = {"married_to", "divorced_from", "litigated_with", "mentioned_in_case"}
 
 for u, v, d in G.edges(data=True):
     if d.get("relation") in SOCIAL_RELS:

@@ -108,9 +108,14 @@ def main():
                         
                         # Extract other party
                         other_party = None
+                        
+                        # Determine if the target is in the caption or just mentioned in the docket
+                        node1_last = node1.split(",")[0].replace("owner|", "").strip().lower()
+                        in_caption = node1_last in caption.lower()
+                        
                         if " v " in caption.lower():
                             parts = caption.lower().split(" v ")
-                            if node1[6:].lower() in parts[0]:
+                            if node1_last in parts[0]:
                                 other_party = caption.split(" v ")[1] if " v " in caption else None
                             else:
                                 other_party = caption.split(" v ")[0] if " v " in caption else None
@@ -124,8 +129,13 @@ def main():
                             n2 = find_or_create_node(G, other_party)
                             if n2 and n2 != node1:
                                 if not G.has_edge(node1, n2):
-                                    # Classify divorces (DR) vs civil lawsuits (CV, JL, GR)
-                                    rel = "divorced_from" if case_num.startswith("DR-") else "litigated_with"
+                                    # Classify based on case type and caption presence
+                                    if case_num.startswith("DR-") and in_caption:
+                                        rel = "divorced_from"
+                                    elif in_caption:
+                                        rel = "litigated_with"
+                                    else:
+                                        rel = "mentioned_in_case"
                                     
                                     # TEMPORAL BOUNDING: Reject if it happened before they were 18
                                     case_year = int(case_num.split("-")[1])

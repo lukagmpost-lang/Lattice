@@ -127,7 +127,9 @@ def _dossier(node_key):
         elif "married_to" in rel:
             marriages.append((nb[6:], e.get("case_no", "")))
         elif "litigated_with" in rel:
-            litigations.append((nb[6:], e.get("case_no", ""), e.get("caption", "")))
+            litigations.append((nb[6:], e.get("case_no", ""), e.get("caption", ""), "litigated_with"))
+        elif "mentioned_in_case" in rel:
+            litigations.append((nb[6:], e.get("case_no", ""), e.get("caption", ""), "mentioned_in_case"))
         elif "divorced_from" in rel:
             divorces.append((nb[6:], e.get("case_no", "")))
         elif "defendant_in" in rel:
