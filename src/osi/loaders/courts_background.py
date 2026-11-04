@@ -1,7 +1,7 @@
 from camoufox.sync_api import Camoufox
 import os, time, json
 
-TARGETS_PATH = os.path.expanduser("~/Desktop/scrape_targets_full.json")
+TARGETS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_full.json")
 PROGRESS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/courts_progress.jsonl")
 
 def load_targets():
