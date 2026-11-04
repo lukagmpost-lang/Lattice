@@ -31,6 +31,9 @@ RELATION_FAMILY: dict[str, str] = {
     "statutory_agent_of":     "sos",
     "officer_of":             "sos",
     "registered_as":          "sos",
+    # Cuyahoga Clerk of Courts foreclosure filings (NEO CANDO).
+    "defendant_in":           "court",
+    "foreclosed_on":          "court",
     # Derived from primary records by this repo's own scripts.
     "co_owner":               "derivation",
     "same_mail":              "derivation",
