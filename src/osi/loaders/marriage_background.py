@@ -1,0 +1,89 @@
+from camoufox.sync_api import Camoufox
+import os, time, json, re
+
+TARGETS_PATH = os.path.expanduser("~/Desktop/scrape_targets.json")
+PROGRESS_PATH = os.path.expanduser("~/Desktop/marriage_progress.jsonl")
+
+def load_targets():
+    targets = json.load(open(TARGETS_PATH))
+    processed = set()
+    if os.path.exists(PROGRESS_PATH):
+        with open(PROGRESS_PATH) as f:
+            for line in f:
+                try:
+                    processed.add(json.loads(line)["node_key"])
+                except: pass
+    return [t for t in targets if t["node_key"] not in processed]
+
+def bypass_tc(page):
+    page.goto("https://probate.cuyahogacounty.gov/pa/", wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(1000)
+    page.locator("input[type='submit']").first.click()
+    page.wait_for_selector("#mpContentPH_txtCaseNum", timeout=15000)
+
+def search_name(page, last, first):
+    page.goto("https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_selector("#mpContentPH_txtLName", timeout=15000)
+    page.fill("#mpContentPH_txtFName", first)
+    page.fill("#mpContentPH_txtLName", last)
+    page.select_option("#mpContentPH_ddlCaseCat", value="ML")
+    page.locator("#mpContentPH_btnSearchByPerson").click()
+    page.wait_for_timeout(2500)
+    text = page.evaluate("() => document.body.innerText")
+    return list(set(re.findall(r'\b(20\d{2}ML\d+)\b', text)))
+
+def search_case(page, case_str):
+    year, cat, num = case_str[:4], case_str[4:6], case_str[6:]
+    page.goto("https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_selector("#mpContentPH_txtCaseNum", timeout=15000)
+    page.evaluate("""(args) => {
+        document.querySelector('#mpContentPH_txtCaseYear').value = args.year;
+        document.querySelector('#mpContentPH_txtCaseNum').value = args.num;
+        const sel = document.querySelector('#mpContentPH_ddlCaseCat');
+        for (let i=0; i<sel.options.length; i++) {
+            if (sel.options[i].value === args.cat) { sel.selectedIndex = i; break; }
+        }
+    }""", {"year": year, "cat": cat, "num": num})
+    page.wait_for_timeout(500)
+    page.locator("#mpContentPH_btnSearchByCase").click()
+    page.wait_for_timeout(2500)
+    rows = page.evaluate("""() => {
+        const trs = document.querySelectorAll('table tr'); let out = [];
+        for (let tr of trs) {
+            const tds = tr.querySelectorAll('td');
+            if (tds.length >= 4) out.push({name: tds[0].innerText.trim(), role: tds[3].innerText.trim()});
+        }
+        return out;
+    }""")
+    return [r['name'] for r in rows if r['role'] in ('APPLICANT1', 'APPLICANT2', 'GROOM', 'BRIDE')]
+
+def main():
+    targets = load_targets()
+    print(f"Remaining targets: {len(targets)}", flush=True)
+
+    with Camoufox(headless=True, i_know_what_im_doing=True) as browser:
+        page = browser.new_page()
+        bypass_tc(page)
+        
+        for i, t in enumerate(targets):
+            try:
+                case_nums = search_name(page, t["last"], t["first"])
+                parties = []
+                if case_nums:
+                    for c in case_nums:
+                        time.sleep(2)
+                        p = search_case(page, c)
+                        if len(p) == 2:
+                            parties.append({"case": c, "parties": p})
+                
+                with open(PROGRESS_PATH, "a") as f:
+                    f.write(json.dumps({"node_key": t["node_key"], "status": "success", "parties": parties}) + "\n")
+                    
+                if i % 5 == 0:
+                    print(f"Progress: {i}/{len(targets)}", flush=True)
+            except Exception as e:
+                with open(PROGRESS_PATH, "a") as f:
+                    f.write(json.dumps({"node_key": t["node_key"], "status": "error", "msg": str(e)}) + "\n")
+
+if __name__ == "__main__":
+    main()
