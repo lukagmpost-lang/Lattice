@@ -60,7 +60,7 @@ def _fetch_missing_labels(graph_dict):
     return updated
 
 
-def _to_networkx(graph_dict):
+def _to_networkx(graph_dict, seed_qid=None, seed_attrs=None):
     id_to_name = {}
     name_counts = {}
     for n in graph_dict["nodes"]:
@@ -74,9 +74,15 @@ def _to_networkx(graph_dict):
     G = nx.Graph()
     for n in graph_dict["nodes"]:
         display = id_to_name[n["id"]]
-        G.add_node(display, original_id=n["id"],
-                   type=n.get("type", "unknown"),
-                   aliases=list(n.get("aliases") or []))
+        node_attrs = {
+            "original_id": n["id"],
+            "type": n.get("type", "unknown"),
+            "aliases": list(n.get("aliases") or []),
+        }
+        if seed_attrs and seed_qid and (n["id"] == seed_qid or n["id"].endswith(":" + seed_qid)):
+            node_attrs["has_wikipedia"] = bool(seed_attrs.get("has_wikipedia"))
+            node_attrs["wikipedia_lang_count"] = int(seed_attrs.get("sitelink_count") or 0)
+        G.add_node(display, **node_attrs)
 
     for e in graph_dict["edges"]:
         src = id_to_name.get(e["source"])
@@ -92,8 +98,30 @@ def _to_networkx(graph_dict):
                 G[src][tgt]["relation"] = existing + " | " + rel if existing else rel
             G[src][tgt]["inferred"] = G[src][tgt].get("inferred", False) or inf
         else:
-            G.add_edge(src, tgt, relation=rel, inferred=inf,
-                       confidence=e.get("confidence", 1.0), weight=1.0)
+            base_conf = e.get("confidence", 1.0)
+            wiki_corroborated = False
+            if seed_qid and seed_attrs and seed_attrs.get("has_wikipedia"):
+                seed_node = id_to_name.get(seed_qid)
+                if seed_node is None:
+                    for nid, nm in id_to_name.items():
+                        if nid.endswith(":" + seed_qid) or nid == seed_qid:
+                            seed_node = nm
+                            break
+                if seed_node and (src == seed_node or tgt == seed_node):
+                    wiki_corroborated = True
+            edge_attrs = {
+                "relation": rel,
+                "inferred": inf,
+                "confidence": base_conf,
+                "wikipedia_corroborated": wiki_corroborated,
+                "weight": 1.0,
+            }
+            if wiki_corroborated:
+                from ..confidence.adapter import edge_confidence
+                edge_attrs["confidence"] = edge_confidence(
+                    "wikipedia_corroborated", corroboration_count=2,
+                )
+            G.add_edge(src, tgt, **edge_attrs)
     return G
 
 
@@ -138,7 +166,7 @@ def load_osint_entity(path, **options):
     if labeled:
         print("[osint] labeled " + str(labeled) + " wikidata nodes")
 
-    G = _to_networkx(collected)
+    G = _to_networkx(collected, seed_qid=qid, seed_attrs=attrs)
     print("[osint] graph: " + str(G.number_of_nodes()) + " nodes, " + str(G.number_of_edges()) + " edges")
 
     return G, {
