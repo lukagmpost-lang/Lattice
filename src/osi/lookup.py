@@ -219,6 +219,8 @@ def predict_coowners(node_key, top_n=10):
     immediate = set(G.neighbors(node_key)) | {node_key}
     candidates = set()
     for n2 in G.neighbors(node_key):
+        if not (n2.startswith("parcel|") or n2.startswith("mail|")):
+            continue
         for n3 in G.neighbors(n2):
             if n3 not in immediate and n3.startswith("owner|") and G.nodes[n3].get("queryable") is not False:
                 candidates.add((node_key, n3))
@@ -270,6 +272,8 @@ def prediction_readiness(node_key):
     immediate = set(G.neighbors(node_key)) | {node_key}
     candidates = set()
     for n2 in G.neighbors(node_key):
+        if not (n2.startswith("parcel|") or n2.startswith("mail|")):
+            continue
         for n3 in G.neighbors(n2):
             if n3 not in immediate and n3.startswith("owner|") and G.nodes[n3].get("queryable") is not False:
                 candidates.add((node_key, n3))

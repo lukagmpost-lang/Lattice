@@ -4,46 +4,62 @@ GRAPH_PATH = os.path.expanduser("~/Desktop/cuyahoga_unified.pkl")
 MARRIAGE_PATH = os.path.expanduser("~/Desktop/marriage_progress.jsonl")
 COURTS_PATH = os.path.expanduser("~/Desktop/courts_progress.jsonl")
 
-# Entity filter to prevent creating nodes for banks, LLCs, and government titles
 ENTITY_KEYWORDS = {
     "BANK", "LLC", "INC", "CORP", "ASSN", "ASSOCIATION", "CO", "COMPANY", 
     "COUNTY", "TREASURER", "STATE", "CITY", "OHIO", "TRUST", "CREDIT", 
     "UNION", "FEDERAL", "SAVINGS", "LOAN", "FINANCIAL", "MORTGAGE", 
     "SERVICE", "SERVICES", "GROUP", "PARTNERS", "LP", "LTD", "P.C.", 
-    "ESTATE", "PROPERTIES", "REALTY", "ADJUSTMENT", "ENTERPRISES"
+    "ESTATE", "PROPERTIES", "REALTY", "ADJUSTMENT", "ENTERPRISES",
+    "HOSPITAL", "MEDICAL", "HEALTH", "CENTER", "CLINIC", "PHYSICIANS", 
+    "SURGERY", "CARE", "UNIVERSITY", "COLLEGE", "SCHOOL"
 }
 
-def is_valid_person(name_str):
-    if not name_str or len(name_str) < 3: return False
-    upper_str = name_str.upper()
-    if any(kw in upper_str for kw in ENTITY_KEYWORDS):
-        return False
-    return True
-
-def find_or_create_person(G, name_str):
-    if not is_valid_person(name_str):
-        return None
+def find_or_create_node(G, name_str):
+    if not name_str or len(name_str) < 3: return None
     
-    # Normalize "FIRST LAST" to "LAST, FIRST"
+    upper_str = name_str.upper()
+    
+    # 1. Check for Entities (Hospitals, Banks, etc.) -> org| node
+    if any(kw in upper_str for kw in ENTITY_KEYWORDS):
+        key = f"org|{upper_str}"
+        if key not in G:
+            G.add_node(key, type="org", kind="organization", name=upper_str, source="court_record")
+        return key
+        
+    # 2. Otherwise, treat as Person -> owner| node
     parts = name_str.replace(",", "").split()
     if len(parts) > 1:
         last = parts[-1]
         first = parts[0]
-        norm_name = f"{last}, {' '.join(parts[:-1])}"
+        mid = parts[1][0] if len(parts) > 2 else ""
+        norm_name = f"{last}, {first} {mid}".strip().upper()
     else:
         return None
 
-    key = f"owner|{norm_name.upper()}"
+    key = f"owner|{norm_name}"
     if key in G: return key
     
-    # Try fuzzy match against existing nodes
-    if last and first:
-        prefix = f"owner|{last.upper()}, {first.upper()}"
-        for n in G.nodes:
-            if n.startswith(prefix): return n
+    # Fuzzy match existing owner nodes (strict: must match full last name)
+    prefix = f"owner|{last.upper()}, {first.upper()}"
+    matches = []
+    for n in G.nodes:
+        if n.startswith(prefix):
+            # Check that the next char is a space or comma (prevents PAGAN -> PAGANO)
+            remaining = n[len(prefix):]
+            if not remaining or remaining[0] in (" ", ","):
+                matches.append(n)
+    
+    if mid:
+        for m in matches:
+            if m.upper() == f"owner|{last.upper()}, {first.upper()} {mid.upper()}":
+                return m
+    else:
+        base_nodes = [m for m in matches if m.count(",") == 1 and len(m.split()) == 2]
+        if len(base_nodes) == 1:
+            return base_nodes[0]
             
-    # Create new node
-    G.add_node(key, type="owner", kind="person", name=norm_name.upper(), source="court_or_marriage")
+    # Create new person node
+    G.add_node(key, type="owner", kind="person", name=norm_name, source="court_or_marriage")
     return key
 
 def main():
@@ -67,14 +83,14 @@ def main():
                         case_num = party_data["case"]
                         p1_name, p2_name = party_data["parties"]
                         
-                        n1 = find_or_create_person(G, p1_name)
-                        n2 = find_or_create_person(G, p2_name)
+                        n1 = find_or_create_node(G, p1_name)
+                        n2 = find_or_create_node(G, p2_name)
                         
                         if n1 and n2 and n1 != n2:
                             if not G.has_edge(n1, n2):
                                 G.add_edge(n1, n2, relation="married_to", source="marriage_record", case_no=case_num, reliability="A")
                                 added_marriages += 1
-                except Exception as e:
+                except Exception:
                     pass
 
     # 2. Process Courts
@@ -105,14 +121,23 @@ def main():
                                 other_party = other_party.replace(suffix, "")
                             other_party = other_party.strip()
                             
-                            n2 = find_or_create_person(G, other_party)
+                            n2 = find_or_create_node(G, other_party)
                             if n2 and n2 != node1:
                                 if not G.has_edge(node1, n2):
-                                    # Distinguish divorces (DR) from civil/civil debt (CV/JL)
+                                    # Classify divorces (DR) vs civil lawsuits (CV, JL, GR)
                                     rel = "divorced_from" if case_num.startswith("DR-") else "litigated_with"
+                                    
+                                    # TEMPORAL BOUNDING: Reject if it happened before they were 18
+                                    case_year = int(case_num.split("-")[1])
+                                    dob_str = G.nodes[node1].get("date_of_birth")
+                                    if dob_str:
+                                        birth_year = int(dob_str.split("-")[0])
+                                        if case_year - birth_year < 18:
+                                            continue # Skip this edge, they were a child
+
                                     G.add_edge(node1, n2, relation=rel, source="court_record", case_no=case_num, caption=row["caption"], reliability="A")
                                     added_courts += 1
-                except Exception as e:
+                except Exception:
                     pass
 
     print(f"\nAdded {added_marriages} marriage edges.")
