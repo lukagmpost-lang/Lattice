@@ -21,3 +21,4 @@ cuyahoga_*.html
 cuyahoga_*.graphml
 __pycache__/
 *.pyc
+*.py.bak
