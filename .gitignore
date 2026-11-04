@@ -19,3 +19,5 @@ cuyahoga_*.pkl
 cuyahoga_*.png
 cuyahoga_*.html
 cuyahoga_*.graphml
+__pycache__/
+*.pyc
