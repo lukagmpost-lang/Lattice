@@ -54,7 +54,7 @@ def find_or_create_node(G, name_str):
             if m.upper() == f"owner|{last.upper()}, {first.upper()} {mid.upper()}":
                 return m
     else:
-        base_nodes = [m for m in matches if m.count(",") == 1 and len(m.split()) == 2]
+        base_nodes = [m for m in matches if m.upper() == f"owner|{last.upper()}, {first.upper()}"]
         if len(base_nodes) == 1:
             return base_nodes[0]
             
