@@ -103,6 +103,9 @@ def main():
                     if data.get("status") != "success": continue
                     node1 = data["node_key"]
                     for row in data.get("rows", []):
+                        # Skip pagination artifacts (names that are just numbers/tabs)
+                        if not any(c.isalpha() for c in row.get("name", "")):
+                            continue
                         caption = row["caption"]
                         case_num = row["case_num"]
                         
