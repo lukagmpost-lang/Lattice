@@ -17,9 +17,21 @@ def load_targets():
 
 def bypass_tc(page):
     page.goto("https://probate.cuyahogacounty.gov/pa/", wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(1000)
-    page.locator("input[type='submit']").first.click()
-    page.wait_for_selector("#mpContentPH_txtCaseNum", timeout=15000)
+    page.wait_for_timeout(2000)
+    
+    # Try to click the TOS button if it exists
+    try:
+        btn = page.locator("input[type='submit']").first
+        if btn.is_visible(timeout=3000):
+            btn.click()
+    except Exception:
+        pass # If no button, maybe TOS is already accepted
+        
+    # Wait for the search form
+    try:
+        page.wait_for_selector("#mpContentPH_txtCaseNum", timeout=15000)
+    except Exception:
+        pass # If it fails, the search function will handle it
 
 def search_name(page, last, first):
     page.goto("https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx", wait_until="domcontentloaded", timeout=30000)
