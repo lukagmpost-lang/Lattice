@@ -11,7 +11,7 @@ ENTITY_KEYWORDS = {
     "SERVICE", "SERVICES", "GROUP", "PARTNERS", "LP", "LTD", "P.C.", 
     "ESTATE", "PROPERTIES", "REALTY", "ADJUSTMENT", "ENTERPRISES",
     "HOSPITAL", "MEDICAL", "HEALTH", "CENTER", "CLINIC", "PHYSICIANS", 
-    "SURGERY", "CARE", "UNIVERSITY", "COLLEGE", "SCHOOL"
+    "SURGERY", "CARE", "UNIVERSITY", "COLLEGE", "SCHOOL", "AUTHORITY", "TRANSIT", "EDUCATION", "BOARD"
 }
 
 def find_or_create_node(G, name_str):
@@ -139,6 +139,11 @@ def main():
                                     
                                     # TEMPORAL BOUNDING: Reject if it happened before they were 18
                                     case_year = int(case_num.split("-")[1])
+                                    if case_year < 100:
+                                        if case_year < 30:
+                                            case_year += 2000
+                                        else:
+                                            case_year += 1900
                                     dob_str = G.nodes[node1].get("date_of_birth")
                                     if dob_str:
                                         birth_year = int(dob_str.split("-")[0])
