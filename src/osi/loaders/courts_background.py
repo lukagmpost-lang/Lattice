@@ -1,7 +1,17 @@
 from camoufox.sync_api import Camoufox
 import os, time, json
 
-TARGETS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_full.json")
+FIREFOX_PREFS = {
+    "network.trr.mode": 5,              # disable DoH, use system resolver
+    "network.http.http3.enabled": False,
+    "network.http.altsvc.enabled": False,
+    "network.http.altsvc.oe": False,
+    "network.http.http2.enabled": False,
+    "security.OCSP.enabled": 0,
+    "security.OCSP.require": False,
+}
+
+TARGETS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_29k.json")
 PROGRESS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/courts_progress.jsonl")
 
 def load_targets():
@@ -21,7 +31,7 @@ def main():
     targets = load_targets()
     print(f"Remaining court targets: {len(targets)}", flush=True)
 
-    with Camoufox(headless=True, i_know_what_im_doing=True) as browser:
+    with Camoufox(headless=True, i_know_what_im_doing=True, firefox_user_prefs=FIREFOX_PREFS) as browser:
         page = browser.new_page()
         
         for i, t in enumerate(targets):
