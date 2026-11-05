@@ -5,7 +5,7 @@ targets = []
 seen = set()
 
 for n, d in G.nodes(data=True):
-    if d.get("voter_match") in ("unique", "address") and n.startswith("owner|"):
+    if d.get("voter_match") in ("name_unique", "dob", "address") and n.startswith("owner|"):
         # Skip if we already added this node
         if n in seen: continue
         
@@ -28,5 +28,5 @@ for n, d in G.nodes(data=True):
             targets.append({"node_key": n, "last": last, "first": first})
             seen.add(n)
 
-json.dump(targets, open(os.path.expanduser("~/Desktop/scrape_targets_full.json"), "w"))
-print(f"Exported {len(targets):,} targets to ~/Desktop/scrape_targets_full.json")
+json.dump(targets, open(os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_29k.json"), "w"))
+print(f"Exported {len(targets):,} targets to ~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_29k.json")
