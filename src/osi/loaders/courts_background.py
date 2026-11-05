@@ -11,8 +11,9 @@ def load_targets():
         with open(PROGRESS_PATH) as f:
             for line in f:
                 try:
-                    if json.loads(line).get("status") == "success":
-                        processed.add(json.loads(line)["node_key"])
+                    _r = json.loads(line)
+                    if _r.get("status") in ("success", "no_cases"):
+                        processed.add(_r["node_key"])
                 except: pass
     return [t for t in targets if t["node_key"] not in processed]
 

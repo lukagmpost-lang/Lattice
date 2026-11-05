@@ -1,7 +1,7 @@
 from camoufox.sync_api import Camoufox
 import os, time, json, re
 
-TARGETS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_full.json")
+TARGETS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_29k.json")
 PROGRESS_PATH = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/marriage_progress.jsonl")
 
 def load_targets():
@@ -11,7 +11,9 @@ def load_targets():
         with open(PROGRESS_PATH) as f:
             for line in f:
                 try:
-                    processed.add(json.loads(line)["node_key"])
+                    _r = json.loads(line)
+                    if _r.get("status") in ("success", "no_cases"):
+                        processed.add(_r["node_key"])
                 except: pass
     return [t for t in targets if t["node_key"] not in processed]
 
