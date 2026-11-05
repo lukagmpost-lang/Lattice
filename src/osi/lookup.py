@@ -334,9 +334,10 @@ def render(dossier):
             out.append(f"    {nm[:45]}  (Case: {case})")
 
     if dossier.get("litigations"):
-        out.append("  court cases (litigated with):")
-        for nm, case, caption in dossier["litigations"][:10]:
-            out.append(f"    {nm[:40]:40s} (Case: {case})")
+        out.append("  court cases:")
+        for nm, case, caption, rel in dossier["litigations"][:10]:
+            rel_label = "litigated with" if rel == "litigated_with" else "mentioned in case"
+            out.append(f"    {nm[:40]:40s} (Case: {case}, {rel_label})")
             if caption:
                 out.append(f"      caption: {caption[:60]}...")
 

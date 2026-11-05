@@ -24,3 +24,4 @@ __pycache__/
 *.py.bak
 data/*.jsonl
 data/*.json
+*.bak_*
