@@ -66,7 +66,7 @@ def main():
             except Exception as e:
                 with open(PROGRESS_PATH, "a") as f:
                     f.write(json.dumps({"node_key": t["node_key"], "status": "error", "msg": str(e)}) + "\n")
-            time.sleep(3)
+            time.sleep(15)
 
 if __name__ == "__main__":
     main()
