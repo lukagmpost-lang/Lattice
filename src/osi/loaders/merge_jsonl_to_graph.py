@@ -114,7 +114,10 @@ def main():
                         
                         # Determine if the target is in the caption or just mentioned in the docket
                         node1_last = node1.split(",")[0].replace("owner|", "").strip().lower()
-                        in_caption = node1_last in caption.lower()
+                        parts = node1.replace('owner|', '').split(',')
+                        node1_last = parts[0].strip().lower()
+                        node1_first = parts[1].strip().split()[0].lower() if len(parts) > 1 else ''
+                        in_caption = (node1_last in caption.lower()) and (node1_first in caption.lower())
                         
                         if " v " in caption.lower():
                             parts = caption.lower().split(" v ")
@@ -125,7 +128,7 @@ def main():
                         
                         if other_party:
                             # Clean caption suffixes
-                            for suffix in [", ET AL", " ET AL", ", ET., AL", " ET., AL", ", ETAL", " ETAL"]:
+                            for suffix in [", ET AL", " ET AL", ", ET., AL", " ET., AL", ", ETAL", " ETAL", " ET. AL.", " ET. AL"]:
                                 other_party = other_party.replace(suffix, "")
                             other_party = other_party.strip()
                             
