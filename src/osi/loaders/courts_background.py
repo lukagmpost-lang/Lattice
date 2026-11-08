@@ -1,4 +1,39 @@
 from camoufox.sync_api import Camoufox
+
+import os
+import sys
+import json
+from datetime import datetime
+
+BANDWIDTH_FILE = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/bandwidth_today.json")
+BANDWIDTH_LIMIT_BYTES = 15 * 1024 * 1024 * 1024  # 15 GB
+
+def load_bandwidth():
+    try:
+        with open(BANDWIDTH_FILE) as f:
+            data = json.load(f)
+        today = datetime.now().strftime("%Y-%m-%d")
+        if data.get("date") != today:
+            return {"date": today, "bytes": 0}
+        return data
+    except Exception:
+        return {"date": datetime.now().strftime("%Y-%m-%d"), "bytes": 0}
+
+def save_bandwidth(bw):
+    try:
+        with open(BANDWIDTH_FILE, "w") as f:
+            json.dump(bw, f)
+    except Exception:
+        pass
+
+def check_bandwidth_limit(bw):
+    if bw["bytes"] >= BANDWIDTH_LIMIT_BYTES:
+        used_gb = bw["bytes"] / (1024**3)
+        print(f"\n[BANDWIDTH LIMIT] {used_gb:.2f} GB of 15 GB used. Stopping scraper.")
+        save_bandwidth(bw)
+        sys.exit(0)
+
+
 import os, time, json
 
 FIREFOX_PREFS = {
@@ -33,8 +68,28 @@ def main():
 
     with Camoufox(headless=True, i_know_what_im_doing=True, firefox_user_prefs=FIREFOX_PREFS) as browser:
         page = browser.new_page()
+        bw = load_bandwidth()
+
+        def track_response(response):
+            try:
+                cl = response.headers.get("content-length")
+                if cl:
+                    bw["bytes"] += int(cl)
+            except Exception:
+                pass
+
+        page.on("response", track_response)
+        
+        # BLOCK IMAGES AND CSS TO SAVE BANDWIDTH (Reduces usage by 90%)
+        def block_assets(route):
+            if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                route.abort()
+            else:
+                route.continue_()
+        page.route("**/*", block_assets)
         
         for i, t in enumerate(targets):
+            check_bandwidth_limit(bw)
             try:
                 page.goto("https://cpdocket.cp.cuyahogacounty.us/", wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(1000)
@@ -66,6 +121,7 @@ def main():
             except Exception as e:
                 with open(PROGRESS_PATH, "a") as f:
                     f.write(json.dumps({"node_key": t["node_key"], "status": "error", "msg": str(e)}) + "\n")
+            save_bandwidth(bw)
             time.sleep(15)
 
 if __name__ == "__main__":
