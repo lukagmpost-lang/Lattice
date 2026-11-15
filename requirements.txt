@@ -1,15 +1,15 @@
-# Graphs, centrality, and node-link JSON.
-networkx==3.7
-
-# Optional extra "fast": faster betweenness and fragility, Leiden, and the power-law fit.
-# pip install igraph leidenalg numpy scipy
-# igraph==1.0.0
-# leidenalg==0.12.0
-# numpy==2.4.4
-# scipy==1.18.1
-
-# Optional extra "web": the FastAPI page. The CLI does not import it.
-# pip install fastapi uvicorn
-
-# Interactive HTML graph for the /graph endpoint.
-pyvis==0.3.2
+networkx
+matplotlib
+pyvis
+camoufox
+httpx
+beautifulsoup4
+lxml
+pypdf
+dnspython
+phonenumbers
+email-validator
+tldextract
+python-whois
+pyobjc-framework-Quartz
+pyobjc-framework-Vision

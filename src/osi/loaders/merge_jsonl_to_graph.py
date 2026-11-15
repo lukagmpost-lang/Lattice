@@ -119,12 +119,14 @@ def main():
                         node1_first = parts[1].strip().split()[0].lower() if len(parts) > 1 else ''
                         in_caption = (node1_last in caption.lower()) and (node1_first in caption.lower())
                         
-                        if " v " in caption.lower():
-                            parts = caption.lower().split(" v ")
+                        caption_lower = caption.lower()
+                        if " v " in caption_lower:
+                            idx = caption_lower.find(" v ")
+                            parts = caption_lower.split(" v ")
                             if node1_last in parts[0]:
-                                other_party = caption.split(" v ")[1] if " v " in caption else None
+                                other_party = caption[idx+3:].strip()
                             else:
-                                other_party = caption.split(" v ")[0] if " v " in caption else None
+                                other_party = caption[:idx].strip()
                         
                         if other_party:
                             # Clean caption suffixes

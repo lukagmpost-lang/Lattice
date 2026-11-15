@@ -4,7 +4,6 @@ def run():
     G = pickle.load(open(os.path.expanduser("~/Desktop/cuyahoga_unified.pkl"), "rb"))
     targets = []
     seen = set()
-
     for n, d in G.nodes(data=True):
         if d.get("voter_match") in ("name_unique", "dob", "address") and n.startswith("owner|"):
             if n in seen: continue
@@ -23,7 +22,6 @@ def run():
             if first and last:
                 targets.append({"node_key": n, "last": last, "first": first})
                 seen.add(n)
-
     out_path = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_29k.json")
     json.dump(targets, open(out_path, "w"))
     print("Exported {:,} targets to {}".format(len(targets), out_path))

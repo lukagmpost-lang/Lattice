@@ -48,9 +48,15 @@ def bypass_tc(page):
 def search_name(page, last, first):
     page.goto("https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx", wait_until="domcontentloaded", timeout=30000)
     page.wait_for_selector("#mpContentPH_txtLName", timeout=15000)
-    page.fill("#mpContentPH_txtFName", first)
-    page.fill("#mpContentPH_txtLName", last)
-    page.select_option("#mpContentPH_ddlCaseCat", value="ML")
+    page.evaluate("""(args) => {
+        document.querySelector('#mpContentPH_txtFName').value = args.first;
+        document.querySelector('#mpContentPH_txtLName').value = args.last;
+        const sel = document.querySelector('#mpContentPH_ddlCaseCat');
+        for (let i=0; i<sel.options.length; i++) {
+            if (sel.options[i].value === 'ML') { sel.selectedIndex = i; break; }
+        }
+    }""", {"first": first, "last": last})
+    page.wait_for_timeout(500)
     page.locator("#mpContentPH_btnSearchByPerson").click()
     page.wait_for_timeout(2500)
     text = page.evaluate("() => document.body.innerText")
