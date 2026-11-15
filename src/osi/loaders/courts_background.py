@@ -66,8 +66,13 @@ def main():
     targets = load_targets()
     print(f"Remaining court targets: {len(targets)}", flush=True)
 
-    with Camoufox(headless=True, i_know_what_im_doing=True, firefox_user_prefs=FIREFOX_PREFS) as browser:
-        page = browser.new_page()
+    PROXY_SERVER = "http://localhost:8080"
+
+    proxy_config = {"server": PROXY_SERVER}
+
+
+    with Camoufox(headless=True, i_know_what_im_doing=True, proxy=proxy_config) as browser:
+        page = browser.new_page(ignore_https_errors=True)
         bw = load_bandwidth()
 
         def track_response(response):
@@ -91,7 +96,7 @@ def main():
         for i, t in enumerate(targets):
             check_bandwidth_limit(bw)
             try:
-                page.goto("https://cpdocket.cp.cuyahogacounty.us/", wait_until="domcontentloaded", timeout=30000)
+                page.goto("https://cpdocket.cp.cuyahogacounty.gov/", wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(1000)
                 if page.locator("#SheetContentPlaceHolder_btnYes").count() > 0:
                     page.locator("#SheetContentPlaceHolder_btnYes").click()

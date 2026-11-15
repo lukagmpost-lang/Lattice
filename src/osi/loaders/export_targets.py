@@ -26,7 +26,7 @@ def run():
 
     out_path = os.path.expanduser("~/Desktop/OSI/Open-Source-Intelligence/data/scrape_targets_29k.json")
     json.dump(targets, open(out_path, "w"))
-    print(f"Exported {len(targets):,} targets to {out_path}")
+    print("Exported {:,} targets to {}".format(len(targets), out_path))
 
 if __name__ == "__main__":
     run()

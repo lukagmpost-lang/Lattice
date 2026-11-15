@@ -1,27 +1,11 @@
-# Ignore raw data
-*.tsv
-*.csv
-*.zip
-
-# Ignore cache and generated layouts
-*.npy
-*.pkl
-
-# Ignore generated high-res images (use small versions or external links for README)
-*.png
-.env
-.env.*
-
-# Cuyahoga raw data (regenerable from query scripts)
-cuyahoga_*.json
-cuyahoga_*.csv
-cuyahoga_*.pkl
-cuyahoga_*.png
-cuyahoga_*.html
-cuyahoga_*.graphml
 __pycache__/
 *.pyc
-*.py.bak
+.DS_Store
+*.pkl
 data/*.jsonl
-data/*.json
-*.bak_*
+*.tsv
+*.png
+*.jpg
+*.csv
+*.zip
+*.pkl
