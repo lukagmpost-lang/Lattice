@@ -22,7 +22,8 @@ def load_targets():
             for line in f:
                 try:
                     _r = json.loads(line)
-                    if _r.get("status") in ("success", "no_cases"):
+                    st = _r.get("status")
+                    if st == "no_cases" or (st == "success" and _r.get("parties")):
                         processed.add(_r["node_key"])
                 except: pass
     return [t for t in targets if t["node_key"] not in processed]
@@ -58,7 +59,7 @@ def search_name(page, last, first):
     }""", {"first": first, "last": last})
     page.wait_for_timeout(500)
     page.locator("#mpContentPH_btnSearchByPerson").click()
-    page.wait_for_timeout(2500)
+    page.wait_for_timeout(1200)
     text = page.evaluate("() => document.body.innerText")
     return list(set(re.findall(r'\b(20\d{2}ML\d+)\b', text)))
 
@@ -76,7 +77,7 @@ def search_case(page, case_str):
     }""", {"year": year, "cat": cat, "num": num})
     page.wait_for_timeout(500)
     page.locator("#mpContentPH_btnSearchByCase").click()
-    page.wait_for_timeout(2500)
+    page.wait_for_timeout(1200)
     rows = page.evaluate("""() => {
         const trs = document.querySelectorAll('table tr'); let out = [];
         for (let tr of trs) {
@@ -91,8 +92,10 @@ def main():
     targets = load_targets()
     print(f"Remaining targets: {len(targets)}", flush=True)
 
-    with Camoufox(headless=True, i_know_what_im_doing=True, firefox_user_prefs=FIREFOX_PREFS) as browser:
-        page = browser.new_page()
+    proxy_config = {"server": "http://localhost:8080"}
+
+    with Camoufox(headless=True, i_know_what_im_doing=True, firefox_user_prefs=FIREFOX_PREFS, proxy=proxy_config) as browser:
+        page = browser.new_page(ignore_https_errors=True)
         bypass_tc(page)
         
         for i, t in enumerate(targets):
@@ -107,7 +110,7 @@ def main():
                             parties.append({"case": c, "parties": p})
                 
                 with open(PROGRESS_PATH, "a") as f:
-                    f.write(json.dumps({"node_key": t["node_key"], "status": "success", "parties": parties}) + "\n")
+                    f.write(json.dumps({"node_key": t["node_key"], "status": ("success" if parties else "no_cases"), "parties": parties}) + "\n")
                     
                 if i % 5 == 0:
                     print(f"Progress: {i}/{len(targets)}", flush=True)
