@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import networkx as nx
 
+from osi.graph_utils import components as _components
+
 _MAX_HYPOTHESES = 4
 _SPARSE_CUT = 0.1
 _LOW_CLUSTERING = 0.1
@@ -143,7 +145,7 @@ def _has_sparse_cut(induced: nx.Graph) -> bool:
     """True when the subgraph is two sizable pieces with few edges between them."""
     if induced.number_of_nodes() < 8:
         return False
-    pieces = [component for component in nx.connected_components(induced) if len(component) >= 3]
+    pieces = [component for component in _components(induced) if len(component) >= 3]
     if len(pieces) >= 2:
         return True
     if induced.number_of_edges() < 4:
@@ -260,7 +262,7 @@ def _removal_fragments(graph: nx.Graph) -> bool:
     remaining = graph.subgraph(node for node in graph if node not in removed)
     if remaining.number_of_nodes() == 0:
         return True
-    largest = max(len(component) for component in nx.connected_components(remaining))
+    largest = max(len(component) for component in _components(remaining))
     return largest < _FRAGMENT_REMAINING * count
 
 

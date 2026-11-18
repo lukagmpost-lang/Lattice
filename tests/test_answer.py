@@ -179,8 +179,13 @@ def test_verify_numbers_accepts_three_decimal_places():
     assert verify_numbers("0.41548", _SCORES) is True
     # A number like 99 should fail if no stored value is 99 and it's not a small count
     assert verify_numbers("99", _SCORES) is False
-    # A small integer like 3 should pass as a generic count
+    # 3 is the number of stored values, so the count still passes.
     assert verify_numbers("3", _SCORES) is True
+
+
+def test_verify_numbers_rejects_an_unstored_small_integer():
+    assert verify_numbers("7", _SCORES) is False
+    assert verify_numbers("1", _SCORES) is False
 
 
 def test_verify_numbers_accepts_four_decimal_places():

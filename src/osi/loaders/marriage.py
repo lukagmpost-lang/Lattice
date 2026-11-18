@@ -1,160 +1,223 @@
-from camoufox.sync_api import Camoufox
-import pickle, os, time, re
+"""Older direct-to-pickle marriage pipeline.
+
+Kept for one-off runs against a single graph.  The merge module is the normal
+entry point; both now use the same identity checks, so a case is only attached
+when the searched person is one of its two parties.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import pickle
+import re
+import time
+from pathlib import Path
+
 import networkx as nx
 
-def bypass_tc(page):
-    page.goto("https://probate.cuyahogacounty.gov/pa/", wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(1000)
-    page.locator("input[type='submit']").first.click()
-    page.wait_for_selector("#mpContentPH_txtCaseNum", timeout=15000)
+from osi.loaders.io_utils import atomic_pickle_dump
+from osi.loaders.merge_jsonl_to_graph import PersonIndex, resolve_party_node
+from osi.names import PersonIdentity, identities_match, name_from_node_key, person_identity
 
-def search_name(page, last, first):
-    """Phase 1: Find ML case numbers for a person."""
-    page.goto("https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx", wait_until="domcontentloaded", timeout=30000)
+_DEFAULT_GRAPH = Path(os.path.expanduser("~/Desktop/cuyahoga_unified.pkl"))
+_DEFAULT_OUT = Path(os.path.expanduser("~/Desktop/cuyahoga_unified_with_marriages.pkl"))
+_CASE_RE = re.compile(r"\b((?:19|20)\d{2}ML\d+)\b", re.IGNORECASE)
+
+
+def bypass_tc(page) -> None:
+    page.goto(
+        "https://probate.cuyahogacounty.gov/pa/",
+        wait_until="domcontentloaded",
+        timeout=60000,
+    )
+    page.wait_for_timeout(1000)
+    try:
+        button = page.locator("input[type='submit']").first
+        if button.is_visible(timeout=3000):
+            button.click()
+    except Exception:
+        pass
+    try:
+        page.wait_for_selector("#mpContentPH_txtCaseNum", timeout=15000)
+    except Exception:
+        pass
+
+
+def search_name(page, last: str, first: str) -> list[str]:
+    """Phase 1: find ML case numbers for a person."""
+    page.goto(
+        "https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx",
+        wait_until="domcontentloaded",
+        timeout=30000,
+    )
     page.wait_for_selector("#mpContentPH_txtLName", timeout=15000)
-    
     page.fill("#mpContentPH_txtFName", first)
     page.fill("#mpContentPH_txtLName", last)
     page.select_option("#mpContentPH_ddlCaseCat", value="ML")
-    
     page.locator("#mpContentPH_btnSearchByPerson").click()
     page.wait_for_timeout(2500)
-    
     text = page.evaluate("() => document.body.innerText")
-    # Regex to find modern ML case numbers (e.g., 2017ML42119)
-    case_nums = re.findall(r'\b(20\d{2}ML\d+)\b', text)
-    return list(set(case_nums))
+    return sorted(set(_CASE_RE.findall(text)))
 
-def search_case(page, case_str):
-    """Phase 2: Get the parties for a specific case."""
-    year = case_str[:4]
-    cat = case_str[4:6]
-    num = case_str[6:]
-    
-    page.goto("https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx", wait_until="domcontentloaded", timeout=30000)
+
+def search_case(page, case_str: str) -> list[str]:
+    """Phase 2: get the parties for a specific case."""
+    year, cat, number = case_str[:4], case_str[4:6], case_str[6:]
+    page.goto(
+        "https://probate.cuyahogacounty.gov/pa/CaseSearch.aspx",
+        wait_until="domcontentloaded",
+        timeout=30000,
+    )
     page.wait_for_selector("#mpContentPH_txtCaseNum", timeout=15000)
-    
-    # Inject JS to avoid ASP.NET postback wiping the fields
-    page.evaluate("""(args) => {
-        document.querySelector('#mpContentPH_txtCaseYear').value = args.year;
-        document.querySelector('#mpContentPH_txtCaseNum').value = args.num;
-        const sel = document.querySelector('#mpContentPH_ddlCaseCat');
-        for (let i=0; i<sel.options.length; i++) {
-            if (sel.options[i].value === args.cat) { sel.selectedIndex = i; break; }
-        }
-    }""", {"year": year, "cat": cat, "num": num})
-    
+    page.evaluate(
+        """(args) => {
+            document.querySelector('#mpContentPH_txtCaseYear').value = args.year;
+            document.querySelector('#mpContentPH_txtCaseNum').value = args.num;
+            const sel = document.querySelector('#mpContentPH_ddlCaseCat');
+            for (let i=0; i<sel.options.length; i++) {
+                if (sel.options[i].value === args.cat) { sel.selectedIndex = i; break; }
+            }
+        }""",
+        {"year": year, "cat": cat, "num": number},
+    )
     page.wait_for_timeout(500)
     page.locator("#mpContentPH_btnSearchByCase").click()
     page.wait_for_timeout(2500)
-    
-    # Parse the table rows
-    rows = page.evaluate("""() => {
-        const trs = document.querySelectorAll('table tr');
-        let out = [];
-        for (let tr of trs) {
-            const tds = tr.querySelectorAll('td');
-            if (tds.length >= 4) {
-                out.push({
-                    name: tds[0].innerText.trim(),
-                    role: tds[3].innerText.trim()
-                });
+    rows = page.evaluate(
+        """() => {
+            const trs = document.querySelectorAll('table tr');
+            let out = [];
+            for (let tr of trs) {
+                const tds = tr.querySelectorAll('td');
+                if (tds.length >= 4) {
+                    out.push({
+                        name: tds[0].innerText.trim(),
+                        role: tds[3].innerText.trim()
+                    });
+                }
             }
-        }
-        return out;
-    }""")
-    
-    parties = []
-    for r in rows:
-        # APPLICANT1, APPLICANT2, GROOM, BRIDE
-        if r['role'] in ('APPLICANT1', 'APPLICANT2', 'GROOM', 'BRIDE'):
-            parties.append(r['name'])
-    return parties
+            return out;
+        }"""
+    )
+    parties = [
+        row["name"]
+        for row in rows
+        if row.get("role") in ("APPLICANT1", "APPLICANT2", "GROOM", "BRIDE")
+        and row.get("name")
+    ]
+    return list(dict.fromkeys(parties))
 
-def find_or_create_person(G, name_str):
-    """Find an existing owner node by (Last, First), or create a new one."""
-    parts = name_str.split()
-    if len(parts) > 1:
-        last = parts[-1]
-        first = parts[0]
-        norm_name = f"{last}, {' '.join(parts[:-1])}"
-    else:
-        last = parts[0]
-        first = ""
-        norm_name = name_str
-        
-    # 1. Exact match
-    key = f"owner|{norm_name.upper()}"
-    if key in G:
-        return key
-        
-    # 2. Fuzzy match (Last, First) ignoring middle names
-    if last and first:
-        prefix = f"owner|{last.upper()}, {first.upper()}"
-        for n in G.nodes:
-            if n.startswith(prefix):
-                return n
-                
-    # 3. Create new node
-    G.add_node(key, type="owner", kind="person", name=norm_name.upper(), source="marriage_record")
-    return key
 
-def run_pipeline(limit=5):
-    print("Loading graph...")
-    G = pickle.load(open(os.path.expanduser("~/Desktop/cuyahoga_unified.pkl"), "rb"))
-    
-    # Get some targets that have a voter match
-    targets = []
-    for n, d in G.nodes(data=True):
-        if d.get("voter_match") in ("unique", "address") and n.startswith("owner|") and "," in n:
-            parts = n[6:].split(",")
-            last = parts[0].strip()
-            first = parts[1].strip().split()[0]
-            targets.append((n, last, first))
-            if len(targets) >= limit:
-                break
+def _target_identity(node_key: str, data: dict) -> PersonIdentity | None:
+    value = data.get("name") or name_from_node_key(node_key)
+    return person_identity(value) if value else None
 
-    with Camoufox(headless=True, i_know_what_im_doing=True) as browser:
+
+def _voter_matched(data: dict) -> bool:
+    # voter_file.py writes name_unique/dob/address.  The old check looked for
+    # "unique", which no code path produced.
+    return data.get("voter_match") in {"name_unique", "dob", "address"}
+
+
+def _browser():
+    from camoufox.sync_api import Camoufox
+
+    return Camoufox(headless=True)
+
+
+def run_pipeline(
+    limit: int = 5,
+    *,
+    graph_path: str | Path = _DEFAULT_GRAPH,
+    out_path: str | Path | None = _DEFAULT_OUT,
+    case_delay_seconds: float = 2,
+) -> int:
+    graph_path = Path(graph_path)
+    print(f"Loading graph: {graph_path}")
+    with graph_path.open("rb") as handle:
+        graph: nx.Graph = pickle.load(handle)
+
+    targets: list[tuple[str, PersonIdentity]] = []
+    for node, data in graph.nodes(data=True):
+        if not str(node).startswith("owner|") or not _voter_matched(data):
+            continue
+        identity = _target_identity(str(node), data)
+        if identity is None:
+            continue
+        targets.append((str(node), identity))
+        if len(targets) >= limit:
+            break
+
+    added = 0
+    with _browser() as browser:
         page = browser.new_page()
         bypass_tc(page)
-        
-        edges_added = 0
-        
-        for i, (node_key, last, first) in enumerate(targets):
-            print(f"\n[{i+1}/{limit}] Processing {last}, {first} ({node_key})...")
-            
+        index = PersonIndex(graph)
+
+        for position, (node_key, target) in enumerate(targets, 1):
+            print(
+                f"\n[{position}/{len(targets)}] Processing "
+                f"{target.last}, {target.first} ({node_key})..."
+            )
             try:
-                case_nums = search_name(page, last, first)
-                if not case_nums:
+                case_numbers = search_name(page, target.last, target.first)
+                if not case_numbers:
                     print("  No modern marriage cases found.")
                     continue
-                    
-                print(f"  Found cases: {case_nums}")
-                
-                for c in case_nums:
-                    time.sleep(2)
-                    parties = search_case(page, c)
-                    if len(parties) == 2:
-                        spouse1, spouse2 = parties
-                        print(f"    Case {c}: {spouse1} <-> {spouse2}")
-                        
-                        n1 = find_or_create_person(G, spouse1)
-                        n2 = find_or_create_person(G, spouse2)
-                            
-                        # Add edge
-                        if not G.has_edge(n1, n2):
-                            G.add_edge(n1, n2, relation="married_to", source="marriage_record", case_no=c, reliability="A")
-                            edges_added += 1
-                            
-            except Exception as e:
-                print(f"  ERROR: {e}")
+                print(f"  Found cases: {case_numbers}")
+                for case_number in case_numbers:
+                    time.sleep(case_delay_seconds)
+                    parties = search_case(page, case_number)
+                    if len(parties) != 2:
+                        continue
+                    matches = [
+                        i
+                        for i, party in enumerate(parties)
+                        if identities_match(target, person_identity(party))
+                    ]
+                    if len(matches) != 1:
+                        continue
+                    spouse = parties[1 - matches[0]]
+                    spouse_key = resolve_party_node(
+                        graph, index, spouse, source="marriage_record"
+                    )
+                    if spouse_key is None or graph.has_edge(node_key, spouse_key):
+                        continue
+                    graph.add_edge(
+                        node_key,
+                        spouse_key,
+                        relation="married_to",
+                        source="marriage_record",
+                        case_no=case_number,
+                        reliability="B",
+                        match_method="case_party_name",
+                    )
+                    added += 1
+            except Exception as exc:
+                print(f"  ERROR: {exc}")
 
-    if edges_added > 0:
-        out_path = os.path.expanduser("~/Desktop/cuyahoga_unified_with_marriages.pkl")
-        pickle.dump(G, open(out_path, "wb"))
-        print(f"\nSaved graph with {edges_added} new marriage edges to {out_path}")
-    else:
-        print("\nNo new edges added.")
+    print(f"\nAdded {added} verified marriage edges.")
+    if out_path is not None:
+        atomic_pickle_dump(graph, out_path)
+        print(f"Saved graph to {out_path}")
+    return added
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--graph", default=str(_DEFAULT_GRAPH))
+    parser.add_argument("--out", default=str(_DEFAULT_OUT))
+    parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--case-delay", type=float, default=2)
+    return parser.parse_args(argv)
+
 
 if __name__ == "__main__":
-    run_pipeline(limit=5)
+    args = _parse_args()
+    run_pipeline(
+        limit=args.limit,
+        graph_path=args.graph,
+        out_path=args.out,
+        case_delay_seconds=args.case_delay,
+    )

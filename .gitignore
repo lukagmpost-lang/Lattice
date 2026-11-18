@@ -2,9 +2,12 @@ __pycache__/
 *.pyc
 .DS_Store
 *.pkl
-data/*.jsonl
+data/
+analysis/cuyahoga/data/
+*.jsonl
 .env
 *.tsv
 *.png
 *.zip
 *.csv
+server*.log

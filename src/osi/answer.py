@@ -748,7 +748,6 @@ def verify_numbers(text: str, values: dict) -> bool:
     """Extract every number from text. For each number N:
 
     - If N rounds to 4 decimal places matching any stored value rounded to 4 decimal places, ok.
-    - Else if N is an integer between 1 and 10, accept as a small count.
     - Else if N is a whole number matching any stored whole number, ok.
     - Else if N equals the number of keys in ``values`` or any key in ``values``, ok.
     - Else, fail and print debug.
@@ -778,13 +777,10 @@ def verify_numbers(text: str, values: dict) -> bool:
             tolerance = 0.0  # For integers, we already have other checks, but we keep for safety
         if any(abs(number - float(v)) < tolerance for v in stored if not isinstance(v, bool)):
             continue
-        # 2. Small integer counts 1-10
-        if number.is_integer() and 1 <= number <= 10:
-            continue
-        # 3. Whole number match with stored whole numbers
+        # 2. Whole number match with stored whole numbers
         if "." not in token and any(_is_whole(v) and number == v for v in stored if not isinstance(v, bool)):
             continue
-        # 4. Match count or keys
+        # 3. Match count or keys
         if number == count or any(_exactly(number, k) for k in keys):
             continue
         # Reject
@@ -1085,7 +1081,7 @@ def write_answer(
             and not _recites_metrics(prose)
         )
     def _stricter_prompt(prompt: str) -> str:
-        return prompt + "\\n\\nIMPORTANT: Every number in your answer must appear in the data above. Lead with what matters most. Use plain language. End with what this means for someone who uses this network."
+        return prompt + "\n\nIMPORTANT: Every number in your answer must appear in the data above. Lead with what matters most. Use plain language. End with what this means for someone who uses this network."
 
     prose = _request(data_prompt)
     if prose is not None and _acceptable(prose):

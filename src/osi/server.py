@@ -7,6 +7,8 @@ and run ``uvicorn osi.server:app``.
 from __future__ import annotations
 
 import os
+import re
+import secrets
 import sys
 import tempfile
 import time
@@ -14,11 +16,13 @@ from pathlib import Path
 from uuid import uuid4
 
 import networkx as nx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from osi.ask import _execute
+from osi.graph_utils import component_count, largest_subgraph, undirected_view
 from osi.loader import load_edge_list, load_graphml
 from osi.loaders.slack import detect_slack_format, load_slack_export
 from osi.loaders.telegram import detect_telegram_format, load_telegram_export
@@ -26,6 +30,41 @@ from osi.loaders.whatsapp import detect_whatsapp_format, load_whatsapp_export, c
 from osi.store import create_run, get_run, list_runs, load_graph, save_graph, store_path, _connection
 
 app = FastAPI()
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _supplied_token(request: Request) -> str:
+    supplied = request.headers.get("x-api-token", "")
+    authorization = request.headers.get("authorization", "")
+    if not supplied and authorization.lower().startswith("bearer "):
+        supplied = authorization[7:]
+    if not supplied:
+        # The graph iframe and export buttons cannot set headers.
+        supplied = request.query_params.get("token", "")
+    return supplied
+
+
+@app.middleware("http")
+async def _api_auth(request: Request, call_next):
+    """Require a token for API and graph traffic, or a loopback client when unset."""
+    path = request.url.path
+    if path.startswith("/api/") or path.startswith("/graph/"):
+        token = os.environ.get("OSI_API_TOKEN")
+        if token:
+            supplied = _supplied_token(request)
+            if not secrets.compare_digest(
+                token.encode("utf-8"), supplied.encode("utf-8")
+            ):
+                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        else:
+            host = request.client.host if request.client else ""
+            if host not in _LOOPBACK_HOSTS:
+                return JSONResponse(
+                    {"detail": "Set OSI_API_TOKEN to allow non-local API clients."},
+                    status_code=401,
+                )
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -40,7 +79,7 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 class AskRequest(BaseModel):
     run: str
     question: str
-    use_llm: bool = True
+    use_llm: bool = False
     use_agent: bool = False
 
 
@@ -95,43 +134,153 @@ def export_runs() -> dict:
     ]
     with _connection() as conn:
         for table in tables:
-            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            rows = conn.execute(f'SELECT * FROM "{table}"').fetchall()
             data[table] = [dict(row) for row in rows]
     return data
 
 
+_IMPORT_TABLES = (
+    "runs",
+    "graphs",
+    "metrics",
+    "communities",
+    "downloads",
+    "results",
+    "answer_cache",
+    "metric_cache",
+)
+_IMPORT_DELETE_ORDER = (
+    "metric_cache",
+    "answer_cache",
+    "results",
+    "downloads",
+    "communities",
+    "metrics",
+    "graphs",
+    "runs",
+)
+_IMPORT_REQUIRED_COLUMNS = {
+    "runs": {"id"},
+    "graphs": {"run_id", "layer", "graph_json"},
+    "metrics": {"run_id", "node", "metric", "value"},
+    "communities": {"run_id", "node", "algorithm", "community_id"},
+    "downloads": {"url"},
+    "results": {"run_id", "source", "payload_json"},
+    "answer_cache": {"key", "answer", "run_id"},
+    "metric_cache": {"run_id", "metric", "result_json"},
+}
+
+
+def _validate_import(export_data: dict, conn) -> tuple[dict[str, list], dict[str, int]]:
+    """Validate the payload before anything is deleted.
+
+    Returns ``{table: [(columns, values), ...]}`` plus row counts.  Unknown
+    tables, unknown columns, non-scalar values, and empty exports are refused.
+    """
+    if not isinstance(export_data, dict):
+        raise HTTPException(status_code=400, detail="Import payload must be an object.")
+    unknown = set(export_data) - set(_IMPORT_TABLES)
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown import table(s): {', '.join(sorted(unknown))}",
+        )
+    runs = export_data.get("runs")
+    if not isinstance(runs, list) or not runs:
+        # An empty import used to delete every table and return success.
+        raise HTTPException(
+            status_code=400,
+            detail="Refusing to import an export with no runs.",
+        )
+
+    table_columns = {
+        table: {
+            row["name"]
+            for row in conn.execute(f'PRAGMA table_info("{table}")').fetchall()
+        }
+        for table in _IMPORT_TABLES
+    }
+    normalized: dict[str, list] = {}
+    counts: dict[str, int] = {}
+    for table, rows in export_data.items():
+        if not isinstance(rows, list):
+            raise HTTPException(
+                status_code=400, detail=f"{table} must be a list of rows."
+            )
+        if not rows:
+            normalized[table] = []
+            counts[table] = 0
+            continue
+        if not all(isinstance(row, dict) for row in rows):
+            raise HTTPException(
+                status_code=400, detail=f"{table} contains a non-object row."
+            )
+        columns = list(rows[0].keys())
+        if not columns or not set(columns) <= table_columns[table]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{table} has unknown columns.",
+            )
+        required = _IMPORT_REQUIRED_COLUMNS[table]
+        if not required <= set(columns):
+            missing = ", ".join(sorted(required - set(columns)))
+            raise HTTPException(
+                status_code=400,
+                detail=f"{table} is missing required column(s): {missing}",
+            )
+        prepared = []
+        for row in rows:
+            if set(row) != set(columns):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{table} rows do not share the same columns.",
+                )
+            values = tuple(row[column] for column in columns)
+            if any(
+                value is not None
+                and not isinstance(value, (str, int, float, bool, bytes))
+                for value in values
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{table} contains a non-scalar value.",
+                )
+            prepared.append((columns, values))
+        normalized[table] = prepared
+        counts[table] = len(prepared)
+    return normalized, counts
+
+
 @app.post("/api/runs/import")
 async def import_runs(export_data: dict) -> dict:
-    """Import the store from JSON exported by /api/runs/export."""
+    """Import a store export after validating every table and column."""
     with _connection() as conn:
-        # Disable foreign key constraints temporarily
-        conn.execute("PRAGMA foreign_keys = OFF")
-        # Order of deletion: tables that depend on others first
-        tables = [
-            "metric_cache",
-            "answer_cache",
-            "results",
-            "downloads",
-            "communities",
-            "metrics",
-            "graphs",
-            "runs",
-        ]
-        for table in tables:
-            conn.execute(f"DELETE FROM {table}")
-        # Insert the provided data
-        for table, rows in export_data.items():
-            if not rows:
-                continue
-            columns = ", ".join(rows[0].keys())
-            placeholders = ", ".join(["?"] * len(rows[0]))
-            insert_sql = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
-            for row in rows:
-                conn.execute(insert_sql, tuple(row.values()))
-        # Re-enable foreign keys and commit
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.commit()
-    return {"status": "success", "message": "Store imported successfully"}
+        normalized, counts = _validate_import(export_data, conn)
+        conn.execute("SAVEPOINT osi_import")
+        try:
+            for table in _IMPORT_DELETE_ORDER:
+                # A partial export replaces only the tables it carries; it must
+                # not silently wipe tables the caller did not include.
+                if table in normalized:
+                    conn.execute(f'DELETE FROM "{table}"')
+            for table, rows in normalized.items():
+                for columns, values in rows:
+                    column_sql = ", ".join(f'"{column}"' for column in columns)
+                    placeholders = ", ".join("?" for _ in columns)
+                    conn.execute(
+                        f'INSERT INTO "{table}" ({column_sql}) VALUES ({placeholders})',
+                        values,
+                    )
+            conn.execute("RELEASE SAVEPOINT osi_import")
+        except Exception as error:
+            conn.execute("ROLLBACK TO SAVEPOINT osi_import")
+            conn.execute("RELEASE SAVEPOINT osi_import")
+            raise HTTPException(
+                status_code=400, detail=f"Import failed: {error}"
+            ) from error
+    return {"status": "success", "imported": counts}
+
+
 @app.get("/api/runs/{run_id}")
 def get_run_summary(run_id: str) -> dict:
     """Return compact graph metadata for the selected run."""
@@ -149,7 +298,7 @@ def get_run_summary(run_id: str) -> dict:
         "title": config.get("filename") or config.get("path") or run_id,
         "nodes": graph.number_of_nodes(),
         "edges": graph.number_of_edges(),
-        "components": nx.number_connected_components(graph) if graph.number_of_nodes() else 0,
+        "components": component_count(graph),
     }
 
 
@@ -277,7 +426,7 @@ async def upload_graph(
     }
     create_run(detected_source, config, notes=filename, run_id=run_id)
     save_graph(run_id, layer, graph)
-    components = nx.number_connected_components(graph)
+    components = component_count(graph)
     return {
         "run": run_id,
         "source": detected_source,
@@ -286,49 +435,6 @@ async def upload_graph(
         "nodes": graph.number_of_nodes(),
         "edges": graph.number_of_edges(),
         "components": components,
-    }
-
-
-@app.post("/api/converse")
-async def api_converse(req: dict) -> dict:
-    """Conversation loop: LLM writes code, iterates, answers."""
-    from osi.converse import converse
-    run_id = req.get("run_id")
-    question = (req.get("question") or "").strip()
-    history = req.get("history") or []
-    if not run_id or not question:
-        raise HTTPException(status_code=400, detail="run_id and question required")
-
-    meta = get_run(run_id)
-    if meta is None:
-        raise HTTPException(status_code=404, detail="run not found")
-    layer = (meta.get("config") or {}).get("layer")
-    if not layer:
-        raise HTTPException(status_code=400, detail="run has no layer")
-    graph = load_graph(run_id, layer)
-    if graph is None:
-        raise HTTPException(status_code=404, detail="graph not found")
-
-    # Load messages from the run if available
-    messages = []
-    try:
-        cfg = meta.get("config") or {}
-        path = cfg.get("path")
-        if path:
-            from osi.loaders.whatsapp import _parse_export
-            _, messages = _parse_export(path)
-    except Exception:
-        messages = []
-
-    try:
-        result = converse(question, graph, messages, verbose=False, history=history)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"converse failed: {e}")
-
-    return {
-        "answer": result.get("answer", ""),
-        "rounds": result.get("rounds", 0),
-        "code_history": result.get("code_history", []),
     }
 
 
@@ -399,15 +505,16 @@ def api_communities(run_id: str) -> dict:
     if graph is None:
         raise HTTPException(status_code=404, detail="graph not found")
     try:
-        communities = list(nx.community.louvain_communities(graph, seed=42))
+        view = undirected_view(graph)
+        communities = list(nx.community.louvain_communities(view, seed=42))
     except Exception:
         return {"communities": []}
-    pr = pagerank(graph)
+    pr = pagerank(view)
     out = []
     for i, members in enumerate(communities):
         n = len(members)
         max_internal = n * (n - 1) / 2
-        internal = [(u, v) for u, v in graph.edges() if u in members and v in members]
+        internal = [(u, v) for u, v in view.edges() if u in members and v in members]
         density = len(internal) / max_internal if max_internal else 0
         hub = max(members, key=lambda m: pr.get(m, 0))
         hub_edges = sum(1 for u, v in internal if hub in (u, v))
@@ -520,122 +627,108 @@ def _ensure_demo_run() -> None:
 
 
 def main() -> None:
-    _ensure_demo_run()
-    """Bind every interface. Render sets PORT; local use defaults to 7860.
+    """Start the local web server.
 
-    uvicorn reads the port at start. The request handlers do not.
+    The default bind address is loopback. Set ``OSI_HOST`` only when a reverse
+    proxy or container network needs it, and set ``OSI_API_TOKEN`` in that case.
     """
+    _ensure_demo_run()
     import uvicorn
 
     port = int(os.environ.get("PORT", "7860"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    host = os.environ.get("OSI_HOST", "127.0.0.1")
+    if host not in {"127.0.0.1", "::1", "localhost"} and not os.environ.get(
+        "OSI_API_TOKEN"
+    ):
+        print(
+            "[server] warning: binding a non-loopback address without "
+            "OSI_API_TOKEN; API requests from other hosts will be rejected.",
+            file=sys.stderr,
+        )
+    uvicorn.run(app, host=host, port=port)
 
-
-if __name__ == "__main__":
-    main()
 
 @app.get("/api/graph/png/{run_id}")
 async def get_graph_png(run_id: str):
-    import os
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import networkx as nx
-    from fastapi.responses import FileResponse
-    from osi.store import get_run, load_graph
+    try:
+        import matplotlib
 
-    meta = get_run(run_id)
-    if not meta: return {"error": "Run not found"}
-    layer = (meta.get("config") or {}).get("layer")
-    g = load_graph(run_id, layer) if layer else None
-    if not g: return {"error": "Graph not found"}
-
-    # Keep largest connected component so the image is dense
-    g_undir = g.to_undirected()
-    largest_cc = max(nx.connected_components(g_undir), key=len)
-    G = g.subgraph(largest_cc).copy()
-
-    # Gephi-style layout (High repulsion, strong gravity)
-    pos = nx.spring_layout(G, k=10.0/max(1, len(G)**0.5), iterations=200, seed=42)
-
-    fig, ax = plt.subplots(figsize=(24, 24), facecolor='white')
-    ax.set_facecolor('white')
-    
-    # Draw faint edges
-    nx.draw_networkx_edges(G, pos, alpha=0.08, edge_color='black', width=0.5, ax=ax)
-
-    # Draw nodes colored by community
-    communities = list(nx.community.louvain_communities(G, seed=42))
-    node_comm = {node: i for i, c in enumerate(communities) for node in c}
-    PALETTE = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
-    node_colors = [PALETTE[node_comm.get(n, 0) % len(PALETTE)] for n in G.nodes()]
-    node_sizes = [max(5, min(30, G.nodes[n].get("message_count", 1) * 2)) for n in G.nodes()]
-    
-    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=node_sizes, linewidths=0, ax=ax)
-    ax.axis('off')
-
-    png_path = f"/tmp/lattice_graphs/{run_id}.png"
-    os.makedirs("/tmp/lattice_graphs", exist_ok=True)
-    plt.savefig(png_path, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0)
-    plt.close()
-
-    return FileResponse(png_path, media_type="image/png", filename=f"lattice_{run_id}.png")
-
-
-def get_graph_png(run_id: str):
-    import os
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import networkx as nx
-    from fastapi.responses import FileResponse
-    from osi.store import get_run, load_graph
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError as error:
+        raise HTTPException(
+            status_code=503, detail="matplotlib is required for PNG export."
+        ) from error
 
     meta = get_run(run_id)
     if not meta:
-        return {"error": "Run not found"}
+        raise HTTPException(status_code=404, detail="Run not found")
     layer = (meta.get("config") or {}).get("layer")
-    g = load_graph(run_id, layer) if layer else None
-    if not g:
-        return {"error": "Graph not found"}
+    graph = load_graph(run_id, layer) if layer else None
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    if graph.number_of_nodes() == 0:
+        raise HTTPException(status_code=400, detail="Graph is empty")
 
-    g_undir = g.to_undirected()
-    largest_cc = max(nx.connected_components(g_undir), key=len)
-    G = g.subgraph(largest_cc).copy()
+    view = undirected_view(graph)
+    largest = largest_subgraph(view)
 
+    # Gephi-style layout (high repulsion, strong gravity).
+    pos = nx.spring_layout(
+        largest, k=10.0 / max(1, len(largest) ** 0.5), iterations=200, seed=42
+    )
+    fig, ax = plt.subplots(figsize=(24, 24), facecolor="white")
+    ax.set_facecolor("white")
+    nx.draw_networkx_edges(
+        largest, pos, alpha=0.08, edge_color="black", width=0.5, ax=ax
+    )
+    communities = list(nx.community.louvain_communities(largest, seed=42))
+    node_comm = {node: i for i, group in enumerate(communities) for node in group}
+    palette = [
+        "#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
+        "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC",
+    ]
+    node_colors = [
+        palette[node_comm.get(node, 0) % len(palette)] for node in largest.nodes()
+    ]
+    node_sizes = [
+        max(5, min(30, largest.nodes[node].get("message_count", 1) * 2))
+        for node in largest.nodes()
+    ]
+    nx.draw_networkx_nodes(
+        largest,
+        pos,
+        node_color=node_colors,
+        node_size=node_sizes,
+        linewidths=0,
+        ax=ax,
+    )
+    ax.axis("off")
+
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    png_path = handle.name
+    handle.close()
     try:
-        from pyforceatlas2 import ForceAtlas2
-        fa2 = ForceAtlas2(
-            outbound_attraction_distribution=False,
-            edge_weight_influence=1.0,
-            lin_log_mode=True,
-            barnes_hut_optimize=True,
-            scaling_ratio=20.0,
-            strong_gravity_mode=True,
-            gravity=20.0,
+        plt.savefig(
+            png_path,
+            dpi=300,
+            bbox_inches="tight",
+            facecolor="white",
+            pad_inches=0,
         )
-        pos = fa2.forceatlas2_networkx_layout(G, pos=None, iterations=100)
     except Exception:
-        pos = nx.spring_layout(G, seed=42)
+        Path(png_path).unlink(missing_ok=True)
+        raise
+    finally:
+        plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(20, 20), facecolor='white')
-    ax.set_facecolor('white')
-    nx.draw_networkx_edges(G, pos, alpha=0.15, edge_color='gray', width=0.5, ax=ax)
-
-    communities = list(nx.community.louvain_communities(G, seed=42))
-    node_comm = {node: i for i, c in enumerate(communities) for node in c}
-    PALETTE = ["#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC"]
-    node_colors = [PALETTE[node_comm.get(n, 0) % len(PALETTE)] for n in G.nodes()]
-    node_sizes = [max(5, min(30, G.nodes[n].get("message_count", 1) * 2)) for n in G.nodes()]
-    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=node_sizes, linewidths=0, ax=ax)
-    ax.axis('off')
-
-    png_path = f"/tmp/lattice_graphs/{run_id}.png"
-    os.makedirs("/tmp/lattice_graphs", exist_ok=True)
-    plt.savefig(png_path, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0)
-    plt.close()
-
-    return FileResponse(png_path, media_type="image/png", filename=f"lattice_{run_id}.png")
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", run_id)
+    return FileResponse(
+        png_path,
+        media_type="image/png",
+        filename=f"lattice_{safe_id}.png",
+        background=BackgroundTask(os.unlink, png_path),
+    )
 
 
 @app.post("/api/reddit")
@@ -661,43 +754,67 @@ async def api_reddit(payload: dict):
 
 @app.get("/api/export/gexf/{run_id}")
 async def export_gexf(run_id: str):
-    import networkx as nx
-    import tempfile, os
-    from fastapi.responses import FileResponse
-    from osi.store import get_run, load_graph
     meta = get_run(run_id)
-    if not meta: return {"error": "Run not found"}
+    if not meta:
+        raise HTTPException(status_code=404, detail="Run not found")
     layer = (meta.get("config") or {}).get("layer")
-    g = load_graph(run_id, layer) if layer else None
-    if not g: return {"error": "Graph not found"}
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".gexf")
-    nx.write_gexf(g, tmp.name)
-    return FileResponse(tmp.name, media_type="application/gexf+xml", filename=f"lattice_{run_id}.gexf")
+    graph = load_graph(run_id, layer) if layer else None
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=".gexf")
+    path = handle.name
+    handle.close()
+    try:
+        nx.write_gexf(graph, path)
+    except Exception:
+        Path(path).unlink(missing_ok=True)
+        raise
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", run_id)
+    return FileResponse(
+        path,
+        media_type="application/gexf+xml",
+        filename=f"lattice_{safe_id}.gexf",
+        background=BackgroundTask(os.unlink, path),
+    )
+
 
 @app.get("/api/export/md/{run_id}")
 async def export_md(run_id: str):
-    import networkx as nx
-    from fastapi.responses import PlainTextResponse
-    from osi.store import get_run, load_graph
     from osi.analysis import pagerank
+
     meta = get_run(run_id)
-    if not meta: return {"error": "Run not found"}
+    if not meta:
+        raise HTTPException(status_code=404, detail="Run not found")
     layer = (meta.get("config") or {}).get("layer")
-    g = load_graph(run_id, layer) if layer else None
-    if not g: return {"error": "Graph not found"}
-    
+    graph = load_graph(run_id, layer) if layer else None
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Graph not found")
+
+    view = undirected_view(graph)
     md = f"# Lattice Analysis: {run_id}\n\n"
-    md += f"**Nodes:** {g.number_of_nodes()} | **Edges:** {g.number_of_edges()}\n\n"
-    
-    pr = pagerank(g)
-    top_users = sorted(pr.items(), key=lambda x: x[1], reverse=True)[:10]
+    md += f"**Nodes:** {graph.number_of_nodes()} | **Edges:** {graph.number_of_edges()}\n\n"
+
+    pr = pagerank(view)
+    top_users = sorted(pr.items(), key=lambda item: item[1], reverse=True)[:10]
     md += "## Top 10 Users by PageRank\n"
-    for u, s in top_users:
-        md += f"- **{u}**: {s:.4f}\n"
-        
+    for node, score in top_users:
+        md += f"- **{node}**: {score:.4f}\n"
+
     md += "\n## Communities (Louvain)\n"
-    comms = list(nx.community.louvain_communities(g, seed=42))
-    for i, c in enumerate(comms[:5]):
-        md += f"- **Group {i}**: {len(c)} members (e.g., {', '.join(list(c)[:3])}...)\n"
-        
-    return PlainTextResponse(md, media_type="text/markdown", headers={"Content-Disposition": f"attachment; filename=lattice_{run_id}.md"})
+    communities = list(nx.community.louvain_communities(view, seed=42))
+    for index, group in enumerate(communities[:5]):
+        md += (
+            f"- **Group {index}**: {len(group)} members "
+            f"(e.g., {', '.join(list(group)[:3])}...)\n"
+        )
+
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", run_id)
+    return PlainTextResponse(
+        md,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f"attachment; filename=lattice_{safe_id}.md"},
+    )
+
+
+if __name__ == "__main__":
+    main()

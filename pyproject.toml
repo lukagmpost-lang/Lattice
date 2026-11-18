@@ -6,11 +6,13 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "networkx",
+    "requests",
 ]
 
 [project.optional-dependencies]
 fast = ["igraph", "leidenalg", "numpy", "scipy"]
-web = ["fastapi", "uvicorn", "python-multipart", "pyvis"]
+web = ["fastapi", "uvicorn", "python-multipart", "pyvis", "matplotlib"]
+scrape = ["camoufox"]
 dev = ["pytest", "httpx"]
 
 [project.scripts]

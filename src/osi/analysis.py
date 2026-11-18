@@ -13,6 +13,9 @@ from typing import Any
 import networkx as nx
 from networkx.algorithms.community import louvain_communities as _louvain_communities
 
+from osi.graph_utils import components as _components
+from osi.graph_utils import undirected_view
+
 
 def _by_score(scores: dict[Any, float]) -> dict[Any, float]:
     return dict(sorted(scores.items(), key=lambda item: (-item[1], str(item[0]))))
@@ -343,7 +346,7 @@ def _nx_component_stats(graph: nx.Graph, original_count: int) -> dict[str, float
     remaining = graph.number_of_nodes()
     if remaining == 0 or original_count == 0:
         return {"remaining": 0.0, "largest": 0.0, "components": 0.0, "efficiency": 0.0}
-    components = list(nx.connected_components(graph))
+    components = _components(graph)
     largest = max(len(component) for component in components) / original_count
     if remaining < 2 or remaining > 8000:
         efficiency = 0.0
@@ -502,14 +505,7 @@ def _finite(value: float) -> float | None:
 
 
 def network_health(G: nx.Graph) -> dict[str, Any]:
-    """Return a dict with:
-    - assortativity: nx.degree_assortativity_coefficient(G)
-    - avg_clustering: nx.average_clustering(G)
-    - transitivity: nx.transitivity(G)
-    - num_components: len(list(nx.connected_components(G)))
-    - avg_degree: mean degree
-    - max_degree: max degree
-    """
+    """Return connectivity and clustering summaries for directed or undirected graphs."""
     degrees = [degree for _node, degree in G.degree()]
     node_count = len(degrees)
     if node_count == 0:
@@ -518,8 +514,8 @@ def network_health(G: nx.Graph) -> dict[str, Any]:
     else:
         avg_degree = float(sum(degrees)) / node_count
         max_degree = int(max(degrees))
-    components = list(nx.connected_components(G))
-    # Same count as len(list(nx.connected_components(G))). The list is reused below.
+    view = undirected_view(G)
+    components = _components(G)
     num_components = len(components)
     if node_count == 0:
         # average_clustering rejects an empty graph. The other scalars are already defined.
@@ -537,13 +533,15 @@ def network_health(G: nx.Graph) -> dict[str, Any]:
         assortativity = None
     else:
         try:
-            assortativity = _finite(float(nx.degree_assortativity_coefficient(G.subgraph(largest))))
+            assortativity = _finite(
+                float(nx.degree_assortativity_coefficient(view.subgraph(largest)))
+            )
         except nx.NetworkXError:
             assortativity = None
     return {
         "assortativity": assortativity,
-        "avg_clustering": float(nx.average_clustering(G)),
-        "transitivity": float(nx.transitivity(G)),
+        "avg_clustering": float(nx.average_clustering(view)),
+        "transitivity": float(nx.transitivity(view)),
         "num_components": num_components,
         "avg_degree": avg_degree,
         "max_degree": max_degree,

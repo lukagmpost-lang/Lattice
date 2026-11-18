@@ -167,8 +167,12 @@ def save_graph(run_id: str, layer: str, graph: nx.Graph, path: str | Path | None
             """,
             (run_id, layer, encoded),
         )
+        # Replacing a graph invalidates everything derived from the previous one.
         conn.execute("DELETE FROM answer_cache WHERE run_id = ?", (run_id,))
         conn.execute("DELETE FROM metric_cache WHERE run_id = ?", (run_id,))
+        conn.execute("DELETE FROM results WHERE run_id = ?", (run_id,))
+        conn.execute("DELETE FROM metrics WHERE run_id = ?", (run_id,))
+        conn.execute("DELETE FROM communities WHERE run_id = ?", (run_id,))
 
 
 def load_graph(run_id: str, layer: str, path: str | Path | None = None) -> nx.Graph | None:

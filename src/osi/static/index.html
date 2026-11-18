@@ -250,7 +250,7 @@ details summary:hover{color:var(--ink)}
         btn.innerText = 'Loading...';
         btn.disabled = true;
         try {
-            const res = await fetch('/api/reddit', {
+            const res = await apiFetch('/api/reddit', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({subreddit: sub, limit: 1000})
@@ -294,13 +294,21 @@ details summary:hover{color:var(--ink)}
   };
 
   const $ = (id) => document.getElementById(id);
+  const API_TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+  function apiFetch(url, options) {
+    const opts = Object.assign({}, options);
+    if (API_TOKEN) {
+      opts.headers = Object.assign({}, opts.headers || {}, {'x-api-token': API_TOKEN});
+    }
+    return fetch(url, opts);
+  }
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[c]));
 
   async function loadRuns() {
     try {
-      const resp = await fetch('/api/runs');
+      const resp = await apiFetch('/api/runs');
       const runs = await resp.json();
       state.runs = runs
         .filter(r => (r.nodes || 0) >= 5)
@@ -329,15 +337,16 @@ details summary:hover{color:var(--ink)}
     state.history = [];
     $('run-selector').value = runId;
     $('messages').innerHTML = '<div class="empty">Ask a question below.</div>';
-    $('graph-iframe').src = '/graph/' + encodeURIComponent(runId);
+    $('graph-iframe').src = '/graph/' + encodeURIComponent(runId)
+      + (API_TOKEN ? '?token=' + encodeURIComponent(API_TOKEN) : '');
     loadSidebar(runId);
   }
 
   async function loadSidebar(runId) {
     try {
       const [commResp, tenseResp] = await Promise.all([
-        fetch('/api/communities/' + encodeURIComponent(runId)).then(r => r.json()),
-        fetch('/api/tense/' + encodeURIComponent(runId)).then(r => r.json()),
+        apiFetch('/api/communities/' + encodeURIComponent(runId)).then(r => r.json()),
+        apiFetch('/api/tense/' + encodeURIComponent(runId)).then(r => r.json()),
       ]);
       // stats
       const run = state.runs.find(r => r.run_id === runId);
@@ -448,13 +457,13 @@ details summary:hover{color:var(--ink)}
     renderThinking();
 
     try {
-      const resp = await fetch('/api/converse', {
+      const resp = await apiFetch('/api/ask', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          run_id: state.current,
+          run: state.current,
           question: question,
-          history: state.history,
+          use_llm: true,
         }),
       });
       clearThinking();
@@ -464,7 +473,7 @@ details summary:hover{color:var(--ink)}
         return;
       }
       const data = await resp.json();
-      renderMessage('assistant', data.answer || '(no answer)', data.code_history, data.rounds);
+      renderMessage('assistant', data.answer || '(no answer)', [], 0);
       state.history.push({role: 'user', content: question});
       state.history.push({role: 'assistant', content: data.answer});
       // collapse explainer after first question
@@ -518,7 +527,7 @@ details summary:hover{color:var(--ink)}
       const form = new FormData();
       form.append('file', file);
       form.append('source', 'auto');
-      const resp = await fetch('/api/uploads', {method:'POST', body: form});
+      const resp = await apiFetch('/api/uploads', {method:'POST', body: form});
       if (resp.ok) {
         await loadRuns();
       } else {

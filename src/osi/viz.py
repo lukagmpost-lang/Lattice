@@ -189,10 +189,20 @@ def render_interactive_html(graph, out_path, top_edges=10000, min_edge_weight=1.
 
     with open(out_path) as f: html = f.read()
     btns = """
+    <script>
+    window.OSI_TOKEN = window.OSI_TOKEN || (new URLSearchParams(window.location.search).get('token') || '');
+    window.osiRunId = window.osiRunId || function () { return window.location.pathname.split('/').pop(); };
+    window.osiOpen = window.osiOpen || function (path) {
+        if (window.OSI_TOKEN) {
+            path += (path.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(window.OSI_TOKEN);
+        }
+        window.open(path, '_blank');
+    };
+    </script>
     <div style="position:fixed; top:15px; right:15px; z-index:9999; display:flex; gap:10px;">
-        <button onclick="window.open('/api/export/gexf/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Export GEXF</button>
-        <button onclick="window.open('/api/export/md/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Export Findings</button>
-        <button onclick="window.open('/api/graph/png/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Save PNG</button>
+        <button onclick="osiOpen('/api/export/gexf/' + osiRunId())" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Export GEXF</button>
+        <button onclick="osiOpen('/api/export/md/' + osiRunId())" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Export Findings</button>
+        <button onclick="osiOpen('/api/graph/png/' + osiRunId())" style="font-family:monospace; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">Save PNG</button>
     </div>
     """
     html = html.replace('</body>', btns + '</body>')
@@ -244,8 +254,18 @@ def _inject_extras(out, comm_list, pr, audits, vis, full, node_comm, top_set):
     )
 
     png_button = """
+    <script>
+    window.OSI_TOKEN = window.OSI_TOKEN || (new URLSearchParams(window.location.search).get('token') || '');
+    window.osiRunId = window.osiRunId || function () { return window.location.pathname.split('/').pop(); };
+    window.osiOpen = window.osiOpen || function (path) {
+        if (window.OSI_TOKEN) {
+            path += (path.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(window.OSI_TOKEN);
+        }
+        window.open(path, '_blank');
+    };
+    </script>
     <div style="position:absolute; top:14px; right:14px; z-index:9999;">
-        <button id="download-png-btn" onclick="window.open('/api/graph/png/' + window.location.pathname.split('/').pop(), '_blank')" style="font-family:inherit; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">
+        <button id="download-png-btn" onclick="osiOpen('/api/graph/png/' + osiRunId())" style="font-family:inherit; font-size:12px; padding:8px 14px; background:#161616; color:#fff; border:1px solid #444; border-radius:4px; cursor:pointer;">
             Save Full PNG
         </button>
     </div>

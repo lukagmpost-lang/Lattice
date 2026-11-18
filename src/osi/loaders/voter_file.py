@@ -19,9 +19,27 @@ import re
 import sys
 from collections import defaultdict
 
+from osi.loaders.io_utils import atomic_pickle_dump
+from osi.names import parse_date_of_birth, parse_person
+
+MATCH_DOB = "dob"
+MATCH_ADDRESS = "address"
+MATCH_NAME_UNIQUE = "name_unique"
+MATCH_AMBIGUOUS = "ambiguous"
+MATCH_NONE = "no_match"
+MATCH_NOT_PERSON = "not_person"
+
 
 def _u(s):
     return "" if s is None else re.sub(r"\s+", " ", str(s)).strip().upper()
+
+
+def _dob_key(value) -> str:
+    """Normalize voter and graph dates to one comparable ISO key."""
+    parsed = parse_date_of_birth(value)
+    if parsed is not None:
+        return parsed.isoformat()
+    return _u(value)
 
 
 def name_parts_graph(name):
@@ -30,22 +48,13 @@ def name_parts_graph(name):
     Handles both 'LAST, FIRST MIDDLE' and 'FIRST MIDDLE LAST'.
     Returns None if the name doesn't parse as a person.
     """
-    n = _u(name)
-    if "," in n:
-        last, rest = n.split(",", 1)
-        tokens = rest.split()
-        first = tokens[0] if tokens else ""
-        mid = tokens[1] if len(tokens) > 1 else ""
-    else:
-        tokens = n.split()
-        if len(tokens) < 2:
-            return None
-        first = tokens[0]
-        last = tokens[-1]
-        mid = tokens[1] if len(tokens) > 2 else ""
+    parsed = parse_person(name)
+    if parsed is None:
+        return None
+    last, first, middle, _suffix = parsed
     if not last or not first:
         return None
-    return (last, first, mid[:1])
+    return (last, first, middle[:1])
 
 
 def name_parts_voter(row):
@@ -75,7 +84,7 @@ def build_voter_index(csv_path):
             rec = {
                 "voter_id": _u(row.get("SOS_VOTERID")),
                 "last": parts[0], "first": parts[1], "mid": parts[2],
-                "dob": _u(row.get("DATE_OF_BIRTH")),
+                "dob": _dob_key(row.get("DATE_OF_BIRTH")),
                 "status": _u(row.get("VOTER_STATUS")),
                 "party": _u(row.get("PARTY_AFFILIATION")),
                 "addr1": _u(row.get("RESIDENTIAL_ADDRESS1")),
@@ -96,6 +105,11 @@ def build_voter_index(csv_path):
     return {"by_name": by_name, "by_name_no_mid": by_name_no_mid, "by_name_dob": by_name_dob, "by_addr": by_addr}
 
 
+def _zip_from_text(value) -> str:
+    match = re.search(r"\b(\d{5})(?:-\d{4})?\b", _u(value))
+    return match.group(1) if match else ""
+
+
 def _collect_node_addresses(G, node):
     """Return a set of (street, zip) tuples for addresses connected to the node."""
     addrs = set()
@@ -105,7 +119,7 @@ def _collect_node_addresses(G, node):
             situs = _u(pd.get("situs_addr") or pd.get("situs") or pd.get("address"))
             z = _u(pd.get("situs_zip") or pd.get("parcel_zip") or pd.get("zip"))
             if situs:
-                addrs.add((situs, z[:5] if z else ""))
+                addrs.add((situs, z[:5] if z else _zip_from_text(situs)))
         elif nb.startswith("mail|"):
             md = G.nodes[nb]
             street = _u(md.get("street") or nb[5:].split("|")[0])
@@ -127,12 +141,12 @@ def match_node(node_name, node_data, addresses, index):
     last, first, mid = parts
 
     # Pass 1: DOB on the node
-    existing_dob = _u(node_data.get("date_of_birth"))
+    existing_dob = _dob_key(node_data.get("date_of_birth"))
     if existing_dob:
         key = (last, first, existing_dob)
         recs = index["by_name_dob"].get(key, [])
         if len(recs) == 1:
-            return "dob", recs
+            return MATCH_DOB, recs
         if recs:
             return "dob_ambiguous", recs
 
@@ -144,7 +158,7 @@ def match_node(node_name, node_data, addresses, index):
         name_recs = index["by_name_no_mid"].get((last, first), [])
 
     if len(name_recs) == 1:
-        return "name_unique", name_recs
+        return MATCH_NAME_UNIQUE, name_recs
 
     if len(name_recs) > 1 and addresses:
         # find voters whose address matches any of the node's addresses
@@ -160,13 +174,13 @@ def match_node(node_name, node_data, addresses, index):
                     matched.append(rec)
                     break
         if len(matched) == 1:
-            return "address", matched
+            return MATCH_ADDRESS, matched
         if matched:
             return "address_ambiguous", matched
 
     if len(name_recs) > 1:
         return "name_ambiguous", name_recs
-    return "no_match", []
+    return MATCH_NONE, []
 
 
 def _addr_compatible(a, b):
@@ -193,7 +207,7 @@ def enrich_graph(G, index, pickle_out=None):
         name = node[6:]
         addresses = _collect_node_addresses(G, node)
         mt, recs = match_node(name, nd, addresses, index)
-        if mt == "dob" or mt == "name_unique":
+        if mt == MATCH_DOB or mt == MATCH_NAME_UNIQUE:
             rec = recs[0]
             nd["voter_id"] = rec["voter_id"]
             nd["date_of_birth"] = rec["dob"]
@@ -202,7 +216,7 @@ def enrich_graph(G, index, pickle_out=None):
             nd["party_affiliation"] = rec["party"]
             nd["voter_match"] = mt
             stats["unique"] += 1
-        elif mt == "address":
+        elif mt == MATCH_ADDRESS:
             rec = recs[0]
             nd["voter_id"] = rec["voter_id"]
             nd["date_of_birth"] = rec["dob"]
@@ -216,16 +230,16 @@ def enrich_graph(G, index, pickle_out=None):
                 {"voter_id": r["voter_id"], "dob": r["dob"],
                  "addr": f"{r['addr1']}, {r['zip']}"} for r in recs[:5]
             ]
-            nd["voter_match"] = "ambiguous"
+            nd["voter_match"] = MATCH_AMBIGUOUS
             stats["ambiguous"] += 1
-        elif mt == "no_match":
-            nd["voter_match"] = "no_match"
+        elif mt == MATCH_NONE:
+            nd["voter_match"] = MATCH_NONE
             stats["no_match"] += 1
         else:
             stats["not_person"] += 1
 
     if pickle_out:
-        pickle.dump(G, open(pickle_out, "wb"))
+        atomic_pickle_dump(G, pickle_out)
     return stats
 
 
@@ -239,19 +253,23 @@ def main():
     ap.add_argument("--index-cache", default=os.path.expanduser("~/Desktop/voter_index.pkl"))
     args = ap.parse_args()
 
-    out_path = args.out or args.graph.replace(".pkl", "_with_voters.pkl") if args.write else None
+    out_path = args.out if args.out else (
+        args.graph.replace(".pkl", "_with_voters.pkl") if args.write else None
+    )
 
     print(f"loading graph: {args.graph}")
-    G = pickle.load(open(args.graph, "rb"))
+    with open(args.graph, "rb") as handle:
+        G = pickle.load(handle)
     print(f"  {G.number_of_nodes():,} nodes, {G.number_of_edges():,} edges")
 
     if os.path.exists(args.index_cache):
         print(f"loading cached voter index: {args.index_cache}")
-        index = pickle.load(open(args.index_cache, "rb"))
+        with open(args.index_cache, "rb") as handle:
+            index = pickle.load(handle)
     else:
         print(f"building voter index from {args.csv}...")
         index = build_voter_index(args.csv)
-        pickle.dump(index, open(args.index_cache, "wb"))
+        atomic_pickle_dump(index, args.index_cache)
         print(f"  cached to {args.index_cache}")
 
     print("\nrewriting edge-sourced 'male'/'female' attrs isn't part of this pass.")

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import networkx as nx
 
+from osi.graph_utils import component_count
 from osi.vocabulary import VOCAB, apply_vocabulary
 
 _BASELINES_PATH = Path(__file__).with_name("baselines.json")
@@ -126,7 +127,7 @@ def _components(metrics: dict, graph) -> int | None:
         return int(recorded)
     if graph is None or graph.number_of_nodes() == 0:
         return None
-    return int(nx.number_connected_components(graph))
+    return int(component_count(graph))
 
 
 def _clustering(metrics: dict, graph) -> float | None:

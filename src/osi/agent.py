@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 import networkx as nx
 
 from osi.analysis import _modularity_of, pagerank as compute_pagerank
+from osi.graph_utils import component_count
 from osi.answer import (
     ANSWER_EXAMPLE,
     LLM_SEED,
@@ -1345,7 +1346,7 @@ def _snapshot(run_id: str, graph: nx.Graph) -> dict:
         "edges": graph.number_of_edges(),
         "avg_degree": average,
         "max_degree": maximum,
-        "components": int(nx.number_connected_components(graph)) if nodes else 0,
+        "components": component_count(graph) if nodes else 0,
         "modularity": modularity,
         "n_communities": group_count,
         "largest_size": largest_size,

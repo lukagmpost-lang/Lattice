@@ -10,17 +10,21 @@ sys.path.insert(0, str(ROOT / "src"))
 from osi.store import (
     create_run,
     delete_run,
+    get_cached_answer,
+    get_metric,
     get_run,
     list_runs,
     load_communities,
     load_graph,
     load_metrics,
+    load_result,
+    list_results,
+    put_cached_answer,
+    put_metric,
     save_communities,
     save_graph,
     save_metrics,
     save_result,
-    load_result,
-    list_results,
 )
 
 
@@ -79,3 +83,22 @@ def test_list_get_and_delete_run(tmp_path):
     assert load_graph("first", "reddit_user", path=path) is None
     assert load_result("first", "health", path=path) is None
     assert [item[0] for item in list_runs(path=path)] == ["second"]
+
+
+def test_saving_a_graph_invalidates_every_derived_table(tmp_path):
+    path = tmp_path / "store.db"
+    run_id = create_run("file", {"layer": "file"}, run_id="cached", path=path)
+    save_graph(run_id, "file", _weighted_graph(), path=path)
+    save_metrics(run_id, {"a": 0.5}, metric="pagerank", path=path)
+    save_communities(run_id, "louvain", {"a": 0}, path=path)
+    save_result(run_id, "health", {"network": {}}, path=path)
+    put_cached_answer("question-key", "old answer", run_id, path=path)
+    put_metric(run_id, "health", "{}", path=path)
+
+    save_graph(run_id, "file", _weighted_graph(), path=path)
+
+    assert load_metrics(run_id, "pagerank", path=path) == {}
+    assert load_communities(run_id, "louvain", path=path) == {}
+    assert load_result(run_id, "health", path=path) is None
+    assert get_cached_answer("question-key", path=path) is None
+    assert get_metric(run_id, "health", path=path) is None

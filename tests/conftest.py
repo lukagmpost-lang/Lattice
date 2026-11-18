@@ -18,23 +18,18 @@ def has_run(run_id: str) -> bool:
 
 @pytest.fixture
 def temp_store(monkeypatch):
-    """Point the store at a temporary file for the duration of the test.
-    
-    Loads the example graph as 'simple-v1' so tests that depend on 
-    pre-saved runs can use it without requiring global state.
+    """Point the store at a temporary file and seed the example graph.
+
+    The environment variable is read on every store call, so no reload is
+    needed. Tests that need a different store can override ``OSI_STORE``.
     """
     with tempfile.TemporaryDirectory() as tmp:
         db_path = os.path.join(tmp, "store.db")
         monkeypatch.setenv("OSI_STORE", db_path)
-        
-        # Force a fresh store by clearing any cached connections
+
         from osi import store
-        # Re-import to pick up the new env var
-        import importlib
-        importlib.reload(store)
-        
-        # Load the example graph
         from osi.loader import load_edge_list
+
         G = load_edge_list("examples/simple.csv")
         store.create_run(
             "file",
@@ -43,5 +38,11 @@ def temp_store(monkeypatch):
             run_id="simple-v1",
         )
         store.save_graph("simple-v1", "file", G)
-        
+
         yield "simple-v1"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_store(temp_store):
+    """Keep every test off the developer's real ``~/.osi/store.db``."""
+    yield temp_store

@@ -10,6 +10,8 @@ import json
 
 import networkx as nx
 
+from osi.graph_utils import component_count
+
 from osi.analysis import _modularity_of, louvain_communities
 
 _SEVERITY = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -302,7 +304,7 @@ def _with_defaults(metrics, graph) -> dict:
     if "components" not in metrics:
         raw = metrics.get("num_components")
         metrics["components"] = int(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else (
-            nx.number_connected_components(graph) if nodes else 0
+            component_count(graph) if nodes else 0
         )
     scores = metrics.get("betweenness")
     if isinstance(scores, dict) and scores:

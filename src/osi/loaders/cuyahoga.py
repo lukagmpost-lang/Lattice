@@ -79,14 +79,27 @@ def _parcel_key(pid):
     return f"parcel|{p}" if p else None
 
 
-def _rows(path):
+def _iter_rows(path):
+    """Yield attribute dictionaries from an ArcGIS JSON or CSV export."""
     p = Path(path)
-    if p.suffix.lower() == ".json":
-        d = json.loads(p.read_text())
-        return [f["attributes"] for f in d.get("features", [])]
-    if p.suffix.lower() == ".csv":
-        return list(csv.DictReader(p.open()))
+    suffix = p.suffix.lower()
+    if suffix == ".json":
+        with p.open(encoding="utf-8-sig") as handle:
+            data = json.load(handle)
+        for feature in data.get("features", []):
+            yield feature.get("attributes", {})
+        return
+    if suffix == ".csv":
+        # utf-8-sig strips the BOM that ArcGIS CSV exports put before the
+        # first column name; without it every field is named "\ufeffparcel_id".
+        with p.open(encoding="utf-8-sig", newline="") as handle:
+            yield from csv.DictReader(handle)
+        return
     raise ValueError(f"unsupported input {p.suffix}; use .json or .csv")
+
+
+def _rows(path):
+    return list(_iter_rows(path))
 
 
 def detect_cuyahoga_format(path):
@@ -94,20 +107,31 @@ def detect_cuyahoga_format(path):
     if p.suffix.lower() not in {".json", ".csv"}:
         return "low"
     try:
-        rows = _rows(path)
+        first = next(iter(_iter_rows(path)), None)
     except Exception:
         return "low"
-    if not rows:
+    if not first:
         return "low"
-    keys = set(rows[0].keys())
+    keys = set(first.keys())
     return "high" if {"parcel_id", "parcel_owner"} <= keys else "low"
 
 
+def _situs(row) -> str:
+    parts = [
+        _norm(row.get("par_addr_all")),
+        _norm(row.get("parcel_city")),
+        _norm(row.get("parcel_state")) or "OH",
+        _zip_str(row.get("parcel_zip")),
+    ]
+    return ", ".join(part for part in parts if part)
+
+
 def load_cuyahoga_parcels(path, *, include_exempt=False):
-    rows = _rows(path)
     G = nx.Graph()
     kept = 0
-    for r in rows:
+    rows_read = 0
+    for r in _iter_rows(path):
+        rows_read += 1
         pid = _norm(r.get("parcel_id"))
         owner = _norm(r.get("parcel_owner"))
         if not pid or not owner:
@@ -120,6 +144,8 @@ def load_cuyahoga_parcels(path, *, include_exempt=False):
         if pk is None or ok is None:
             continue
         kept += 1
+        market_value = _float(r.get("tax_market_total"))
+        situs = _situs(r)
 
         G.add_node(
             pk,
@@ -131,13 +157,18 @@ def load_cuyahoga_parcels(path, *, include_exempt=False):
             property_class_desc=_norm(r.get("prop_class_desc")),
             tax_luc=_norm(r.get("tax_luc")),
             tax_luc_desc=_norm(r.get("tax_luc_description")),
+            # ``situs`` and ``value`` are the canonical names used by the
+            # downstream merge; keep the split fields for existing callers.
+            situs=situs,
+            value=market_value,
             situs_addr=_norm(r.get("par_addr_all")),
             situs_city=_norm(r.get("parcel_city")),
+            situs_state=_norm(r.get("parcel_state")) or "OH",
             situs_zip=_zip_str(r.get("parcel_zip")),
             book_page=_norm(r.get("book_page")),
             last_transfer_date=_date_ms(r.get("last_transfer_date")),
             last_sales_amount=_float(r.get("last_sales_amount")),
-            tax_market_total=_float(r.get("tax_market_total")),
+            tax_market_total=market_value,
             tax_assessed_total=_float(r.get("tax_assessed_total")),
             lender=_null(r.get("lender")),
         )
@@ -149,7 +180,7 @@ def load_cuyahoga_parcels(path, *, include_exempt=False):
             mail_name=_norm(r.get("mail_name")),
         )
 
-        weight = _float(r.get("tax_market_total")) or 1.0
+        weight = market_value or 1.0
         G.add_edge(ok, pk, relation="owns", weight=weight)
 
         mk = _mail_key(r.get("mail_addr_street"), r.get("mail_city"), r.get("mail_zip"))
@@ -166,7 +197,7 @@ def load_cuyahoga_parcels(path, *, include_exempt=False):
 
     meta = {
         "source": "cuyahoga",
-        "rows_read": len(rows),
+        "rows_read": rows_read,
         "rows_kept": kept,
         "n_nodes": G.number_of_nodes(),
         "n_edges": G.number_of_edges(),

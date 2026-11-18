@@ -8,13 +8,13 @@
 * The script `merge_jsonl_to_graph.py` safely ingests the JSONL logs and updates the `.pkl` graph.
 * **Benefit:** Scrapers can run for days without risking the graph. You can resume from crashes perfectly.
 
-## 2. Entity Resolution Rules (The "Masha Popovsky" Logic)
+## 2. Entity Resolution Rules (Identity Logic)
 Because Cuyahoga County has millions of records, the merge script applies strict rules to prevent false positives:
-* **Temporal Bounding:** If a court case is filed before the person was 18 (based on Voter File DOB), the edge is rejected. (e.g., preventing a 1969-born Maria Pagan from getting a 1984 divorce).
-* **Ruthless Middle Initials:** `JONES, LINDA` and `JONES, LINDA D` are strictly separated unless a DOB or Address proves they are the same. (This shattered a fake mega-hub of 4 different Linda Joneses).
+* **Temporal Bounding:** If a court case is filed before the person was 18 (based on Voter File DOB), the edge is rejected. (For example, a 1969-born owner cannot receive a 1984 divorce record.)
+* **Ruthless Middle Initials:** `DOE, JANE` and `DOE, JANE D` are strictly separated unless a DOB or address proves they are the same. (This shattered a fake mega-hub of four different Jane Does).
 * **Org vs. Person Segregation:** Banks, hospitals, and LLCs are stored as `org|` nodes, not `owner|` nodes. 
 * **Hospitals as Structural Anchors:** We keep hospitals (MetroHealth, UH, Lakewood) in the graph. In Cleveland, medical debt and probate lawsuits connect families. They are crucial hubs.
-* **Caption Presence:** If a person's name is in the case caption, it creates a `litigated_with` edge. If their name is only mentioned elsewhere in the docket, it creates a `mentioned_in_case` edge.
+* **Caption Presence:** A `litigated_with` edge is created only when the searched person's name appears in the case caption. Docket mentions that are not caption parties are no longer ingested.
 
 ## 3. Current Scraper Status & The Expansion Plan
 * The background scrapers (Marriage and Courts) are currently churning through a test batch of ~2,500 targets. 
@@ -25,17 +25,17 @@ Because Cuyahoga County has millions of records, the merge script applies strict
 ## 4. The Social Graph & Leverage Analysis
 We created `viz_social.py` to render only person-to-person edges, revealing family clusters and litigation chains. 
 We ran Betweenness Centrality on this social subgraph to find the "structurally important people" (the brokers).
-**Current Top 20 Brokers:**
-1. CENTER, METROHEALTH MEDICAL
-2. CLEVELAND, UNIVERSITY HOSPITALS OF
-3. PAYNE, JOHN M.
-4. WILLIAMS, DONALD J
-5. SR., DONALD A. WILLIAMS
-6. SOLDAN, DONALD M SR
-7. GREEN, WILLIE
-8. THOMPSON, DONALD A.
-9. JR, DONALD THOMPSON
-10. RODRIGUEZ, JOSE M.
+**Current Top 10 Brokers (names redacted):**
+1. Hospital (organization)
+2. Hospital system (organization)
+3. Individual owner A
+4. Individual owner B
+5. Individual owner C
+6. Individual owner D
+7. Individual owner E
+8. Individual owner F
+9. Individual owner G
+10. Individual owner H
 
 ## 5. What's Still Missing (The Roadmap)
 * **eLicense Data:** The Ohio eLicense portal is built on Salesforce. It requires API emulation to bypass the UI. (Currently blocked).

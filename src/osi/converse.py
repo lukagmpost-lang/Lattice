@@ -1,10 +1,16 @@
-"""Conversation loop with code execution. Prompt-based tool calling."""
+"""Conversation loop with code execution. Prompt-based tool calling.
+
+This is not a security boundary.  Code execution is disabled unless the
+operator explicitly sets ``OSI_ALLOW_CODE_EXEC=1``; even then it is only for a
+trusted local user, never for an HTTP endpoint.
+"""
 from __future__ import annotations
 
 import builtins
 import contextlib
 import io
 import json
+import os
 import re
 import signal
 
@@ -72,13 +78,32 @@ def _safe_import(name, *a, **kw):
 
 def _restricted_builtins():
     safe = dict(vars(builtins))
-    for n in ("open", "exec", "eval", "compile", "input", "__import__"):
+    # ``help`` reaches pydoc's module scanner, which imports anything on disk.
+    for n in (
+        "open",
+        "exec",
+        "eval",
+        "compile",
+        "input",
+        "__import__",
+        "help",
+        "breakpoint",
+        "exit",
+        "quit",
+    ):
         safe.pop(n, None)
     safe["__import__"] = _safe_import
     return safe
 
 
 def _run(code, graph, messages, extras=None, timeout=20.0):
+    if os.environ.get("OSI_ALLOW_CODE_EXEC") != "1":
+        return {
+            "ok": False,
+            "output": "",
+            "error": "Code execution is disabled. Set OSI_ALLOW_CODE_EXEC=1 "
+            "only for a trusted local session.",
+        }
     buf = io.StringIO()
     extras = extras or {}
     ns = {"__builtins__": _restricted_builtins(), "g": graph,
@@ -175,7 +200,15 @@ def _resolve_question(question, history):
 
 
 def _load_extras():
+    """Return optional analysis extras for this session.
+
+    These files describe whichever dataset the operator last analyzed, not the
+    graph passed to :func:`converse`.  Loading them by default made answers for
+    one run silently use another run's framings, so it is opt-in.
+    """
     extras = {"framings": [], "irony_candidates": [], "commitments": []}
+    if os.environ.get("OSI_CONVERSE_EXTRAS") != "1":
+        return extras
     try:
         from osi.commitments import load_commitments
         extras["commitments"] = load_commitments()
@@ -207,44 +240,56 @@ def _hash_question(run_id, question, history):
 
 
 def _cache_lookup(run_id, question, history):
+    if not run_id:
+        return None
     try:
         from osi.store import _connection
+
         key = _hash_question(run_id, question, history)
-        conn = _connection()
-        row = conn.execute(
-            "SELECT answer FROM answer_cache WHERE key = ?", (key,)
-        ).fetchone()
-        conn.close()
+        with _connection() as conn:
+            row = conn.execute(
+                "SELECT answer FROM answer_cache WHERE key = ?", (key,)
+            ).fetchone()
         return row[0] if row else None
     except Exception:
         return None
 
 
 def _cache_store(run_id, question, history, answer):
+    if not run_id:
+        return
     try:
         from osi.store import _connection
+
         key = _hash_question(run_id, question, history)
-        conn = _connection()
-        conn.execute(
-            "INSERT OR REPLACE INTO answer_cache (key, answer, run_id) VALUES (?, ?, ?)",
-            (key, answer, run_id),
-        )
-        conn.commit()
-        conn.close()
+        with _connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO answer_cache (key, answer, run_id) VALUES (?, ?, ?)",
+                (key, answer, run_id),
+            )
     except Exception:
         pass
 
 
-def converse(question, graph, messages, max_rounds=3, verbose=False, history=None):
+def _graph_run_id(graph) -> str | None:
+    metadata = getattr(graph, "graph", None)
+    if isinstance(metadata, dict):
+        value = metadata.get("run_id")
+        return str(value) if value else None
+    return None
+
+
+def converse(question, graph, messages, max_rounds=3, verbose=False, history=None, run_id=None):
     extras = _load_extras()
-    prior = history if history is not None else []
+    prior = list(history) if history is not None else []
     original_question = question
+    cache_run_id = run_id or _graph_run_id(graph)
+    cache_history = list(prior)
 
     # Check cache (skip if very short question or no cache table)
-    import os as _os
-    _cache_ok = _os.environ.get("OSI_NO_CACHE") != "1"
-    if _cache_ok:
-        cached = _cache_lookup(graph.graph.get("run_id", "wa-real") if hasattr(graph, "graph") else "wa-real", question, prior)
+    _cache_ok = os.environ.get("OSI_NO_CACHE") != "1"
+    if _cache_ok and cache_run_id:
+        cached = _cache_lookup(cache_run_id, question, prior)
         if cached:
             print("[cache hit] " + question[:80])
             return {"answer": cached, "rounds": 0, "code_history": [], "cached": True}
@@ -285,6 +330,9 @@ def converse(question, graph, messages, max_rounds=3, verbose=False, history=Non
         kind = action.get("action")
         if kind == "answer":
             answer_text = action.get("answer", "").strip()
+            _cache_store(
+                cache_run_id, original_question, cache_history, answer_text
+            )
             if prior is not None:
                 prior.append({"role": "user", "content": question})
                 prior.append({"role": "assistant", "content": answer_text})

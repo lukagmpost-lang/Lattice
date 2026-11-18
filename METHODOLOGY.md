@@ -8,11 +8,11 @@ The graph is built on four distinct layers of public records:
 4. **Social (Probate & Common Pleas Courts):** Marriage records (ML), divorces (DR), civil lawsuits (CV), and judgment liens (JL).
 
 ## 2. Entity Resolution Rules
-Because common names (e.g., "Maria Pagan") appear hundreds of times, the graph does not rely on fuzzy string matching alone. It applies three strict rules:
+Because common names (e.g., "Jane Doe") appear hundreds of times, the graph does not rely on fuzzy string matching alone. It applies three strict rules:
 
 * **The DOB Anchor:** If a person node is matched to the Voter File, their DOB is locked. A court record cannot be attached to that person if the timeline doesn't make sense.
 * **Temporal Bounding:** The court merge script enforces an age check. If a divorce was filed in 1984, it is rejected for anyone born after 1966 (preventing a 15-year-old from getting divorced).
-* **Strict Middle Initials:** `PAGAN, MARIA` and `PAGANO, MARIA` are treated as different people. The script requires a full last-name match or an exact middle-initial match before merging nodes.
+* **Strict Middle Initials:** `SMYTH, MARIA` and `SMYTHE, MARIA` are treated as different people. The script requires a full last-name match or an exact middle-initial match before merging nodes.
 * **Organization Segregation:** Banks, hospitals, and government entities (e.g., MetroHealth, U.S. Bank) are stored as `org|` nodes. They are never treated as people, but they remain in the graph because they are crucial connective tissue (e.g., medical debt links families).
 
 ## 3. Graph Construction
