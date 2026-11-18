@@ -33,6 +33,7 @@ from osi.names import (
     age_at_case,
     caption_sides,
     clean_name,
+    docket_identity,
     identities_match,
     is_placeholder,
     name_from_node_key,
@@ -212,13 +213,22 @@ def _add_edge(
 ) -> bool:
     if a == b or graph.has_edge(a, b):
         return False
-    attrs = {
-        "relation": relation,
-        "source": source,
-        "case_no": case_no,
-        "reliability": "B",
-        "match_method": "case_party_name",
-    }
+    if relation == "mentioned_in_case":
+        attrs = {
+            "relation": relation,
+            "source": source,
+            "case_no": case_no,
+            "reliability": "C",
+            "match_method": "docket_name_only",
+        }
+    else:
+        attrs = {
+            "relation": relation,
+            "source": source,
+            "case_no": case_no,
+            "reliability": "B",
+            "match_method": "case_party_name",
+        }
     if caption:
         attrs["caption"] = caption
     graph.add_edge(a, b, **attrs)
@@ -395,6 +405,90 @@ def merge_courts(
     return stats
 
 
+def merge_courts_mentioned(
+    graph: nx.Graph,
+    records: Iterable[dict],
+    targets: dict[str, dict],
+    index: PersonIndex | None = None,
+) -> dict[str, int]:
+    """Add 'mentioned_in_case' edges when the target appears in a docket row
+    but NOT in the case caption (i.e., not a caption party).
+    """
+    index = index or PersonIndex(graph)
+    stats = {"added": 0, "skipped": 0, "unverified": 0, "underage": 0}
+    for record in records:
+        if record.get("status") != "success":
+            continue
+        target_key = record.get("node_key")
+        if not target_key or target_key not in graph:
+            stats["skipped"] += 1
+            continue
+        target = _target_identity(target_key, graph, targets)
+        if target is None:
+            stats["skipped"] += 1
+            continue
+        dob = graph.nodes[target_key].get("date_of_birth")
+
+        for row in record.get("rows") or []:
+            caption = clean_name(row.get("caption"))
+            sides = caption_sides(caption)
+            if sides is None:
+                stats["unverified"] += 1
+                continue
+            # Only process rows where target is NOT a caption party
+            in_caption = any(
+                identities_match(target, person_identity(p))
+                for side in sides for p in split_parties(side)
+            )
+            if in_caption:
+                continue
+
+            # Docket row name must match target
+            row_ident = docket_identity(row.get("name"))
+            if not identities_match(target, row_ident):
+                continue
+
+            case_no = clean_name(row.get("case_num"))
+            adult = age_at_case(dob, case_no)
+            if adult is False:
+                stats["underage"] += 1
+                continue
+
+            # Target is on the side indicated by the docket role
+            role = str(row.get("role") or "").strip().upper()
+            if role in _DEFENDANT_ROLES:
+                side = "right"
+            elif role in _PLAINTIFF_ROLES:
+                side = "left"
+            else:
+                stats["unverified"] += 1
+                continue
+
+            other_side = sides[1] if side == "left" else sides[0]
+            for party in split_parties(other_side):
+                if is_placeholder(party):
+                    continue
+                other_identity = person_identity(party)
+                if identities_match(target, other_identity):
+                    continue
+                other_key = resolve_party_node(
+                    graph, index, party, source="court_record"
+                )
+                if other_key is None:
+                    continue
+                if _add_edge(
+                    graph,
+                    target_key,
+                    other_key,
+                    relation="mentioned_in_case",
+                    source="court_record",
+                    case_no=case_no,
+                    caption=caption,
+                ):
+                    stats["added"] += 1
+    return stats
+
+
 def rebuild_source_edges(
     graph: nx.Graph,
     *,
@@ -418,6 +512,7 @@ def run(
     targets_path: str | Path | None = TARGETS_PATH,
     apply: bool = False,
     rebuild: bool = False,
+    include_mentioned: bool = False,
 ) -> dict[str, object]:
     """Merge both progress files, returning counts and the graph."""
     graph_path = Path(graph_path)
@@ -438,6 +533,11 @@ def run(
     courts = merge_courts(
         graph, load_records(courts_path), targets, index=index
     )
+    courts_mentioned = {}
+    if include_mentioned:
+        courts_mentioned = merge_courts_mentioned(
+            graph, load_records(courts_path), targets, index=index
+        )
 
     summary = {
         "before_nodes": before_nodes,
@@ -448,6 +548,8 @@ def run(
         "marriages": marriages,
         "courts": courts,
     }
+    if include_mentioned:
+        summary["courts_mentioned"] = courts_mentioned
     if apply:
         backup = backup_file(graph_path)
         atomic_pickle_dump(graph, graph_path)
@@ -477,6 +579,11 @@ def main() -> None:
         action="store_true",
         help="remove existing marriage_record/court_record edges before merging",
     )
+    parser.add_argument(
+        "--include-mentioned",
+        action="store_true",
+        help="add 'mentioned_in_case' edges (docket name match, not caption party)",
+    )
     args = parser.parse_args()
 
     summary = run(
@@ -486,6 +593,7 @@ def main() -> None:
         targets_path=args.targets or None,
         apply=args.apply,
         rebuild=args.rebuild,
+        include_mentioned=args.include_mentioned,
     )
     print(json.dumps(summary, indent=2))
     if not args.apply:

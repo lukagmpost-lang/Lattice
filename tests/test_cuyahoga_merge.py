@@ -9,6 +9,7 @@ import networkx as nx
 from osi.loaders.merge_jsonl_to_graph import (
     PersonIndex,
     merge_courts,
+    merge_courts_mentioned,
     merge_marriages,
     rebuild_source_edges,
     resolve_party_node,
@@ -211,3 +212,103 @@ def test_run_dry_run_does_not_write(tmp_path):
     )
     assert "written" not in summary
     assert graph_path.read_bytes() == before
+
+
+def test_courts_mentioned_only_adds_when_not_in_caption():
+    """Rows where target appears in docket but NOT in caption create
+    'mentioned_in_case' edges with reliability C."""
+    graph = _graph()
+    records = [
+        {
+            "status": "success",
+            "node_key": "owner|SMITH, JOHN",
+            "rows": [
+                # Target in caption -> should NOT be in mentioned pass
+                {
+                    "name": "SMITH JOHN",
+                    "role": "PLAINTIFF",
+                    "case_num": "DR-16-12345",
+                    "caption": "JOHN SMITH v JANE ROE",
+                },
+                # Target NOT in caption, docket name matches, DEFENDANT role
+                # Target on right side (defendant), other side is left (plaintiff)
+                {
+                    "name": "SMITH JOHN",
+                    "role": "DEFENDANT",
+                    "case_num": "CV-20-1",
+                    "caption": "ACME LLC v ROBERT ROE ET AL",
+                },
+                # Target NOT in caption, PLAINTIFF role
+                # Target on left side (plaintiff), other side is right (defendant)
+                {
+                    "name": "SMITH JOHN",
+                    "role": "PLAINTIFF",
+                    "case_num": "CV-20-2",
+                    "caption": "ROBERT ROE v MARY JONES",
+                },
+            ],
+        }
+    ]
+    stats = merge_courts_mentioned(graph, records, TARGETS)
+
+    # First row has target in caption -> skipped by mentioned pass
+    # Second row: DEFENDANT -> target on right, other side is ACME LLC (left)
+    # Third row: PLAINTIFF -> target on left, other side is MARY JONES (right)
+    assert stats["added"] == 2
+    assert stats["unverified"] == 0
+
+    # Verify edge attributes
+    edge1 = graph["owner|SMITH, JOHN"]["org|ACME LLC"]
+    assert edge1["relation"] == "mentioned_in_case"
+    assert edge1["reliability"] == "C"
+    assert edge1["match_method"] == "docket_name_only"
+    assert edge1["case_no"] == "CV-20-1"
+
+    edge2 = graph["owner|SMITH, JOHN"]["owner|JONES, MARY"]
+    assert edge2["relation"] == "mentioned_in_case"
+    assert edge2["reliability"] == "C"
+    assert edge2["match_method"] == "docket_name_only"
+    assert edge2["case_no"] == "CV-20-2"
+
+
+def test_courts_mentioned_underage_skipped():
+    graph = _graph()
+    graph.nodes["owner|SMITH, JOHN"]["date_of_birth"] = "2010-01-01"
+    records = [
+        {
+            "status": "success",
+            "node_key": "owner|SMITH, JOHN",
+            "rows": [
+                {
+                    "name": "SMITH JOHN",
+                    "role": "DEFENDANT",
+                    "case_num": "CV-20-1",
+                    "caption": "ACME LLC v ROBERT ROE ET AL",
+                },
+            ],
+        }
+    ]
+    stats = merge_courts_mentioned(graph, records, TARGETS)
+    assert stats["underage"] == 1
+    assert stats["added"] == 0
+
+
+def test_courts_mentioned_non_party_role_skipped():
+    graph = _graph()
+    records = [
+        {
+            "status": "success",
+            "node_key": "owner|SMITH, JOHN",
+            "rows": [
+                {
+                    "name": "SMITH JOHN",
+                    "role": "WITNESS",
+                    "case_num": "CV-20-1",
+                    "caption": "ACME LLC v ROBERT ROE ET AL",
+                },
+            ],
+        }
+    ]
+    stats = merge_courts_mentioned(graph, records, TARGETS)
+    assert stats["unverified"] == 1
+    assert stats["added"] == 0

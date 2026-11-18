@@ -406,6 +406,31 @@ def identities_match(left: PersonIdentity | None, right: PersonIdentity | None) 
     return True
 
 
+def docket_identity(value: object) -> PersonIdentity | None:
+    """Parse a docket row name (``LAST FIRST MIDDLE [SUFFIX]``) into an identity.
+
+    The Cuyahoga docket tables return names in natural order without commas,
+    e.g. ``ROCCO JOHN C`` or ``SMITH JANE D JR``.
+    """
+    text = clean_name(value)
+    if not text:
+        return None
+    parts = text.upper().split()
+    if len(parts) < 2:
+        return None
+    suffix = None
+    if parts[-1].rstrip(".") in GENERATIONAL_SUFFIXES:
+        suffix = parts.pop()
+    if len(parts) < 2:
+        return None
+    last = parts[0]
+    first = parts[1]
+    middle = " ".join(parts[2:]) if len(parts) > 2 else ""
+    if not last or not first:
+        return None
+    return PersonIdentity(last, first, middle, suffix)
+
+
 def name_from_node_key(node_key: object) -> str | None:
     """Turn ``owner|LAST, FIRST`` back into a parseable ``FIRST LAST`` name."""
     text = clean_name(node_key)
