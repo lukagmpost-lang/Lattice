@@ -14,13 +14,20 @@ ENTITY_KEYWORDS = {
     "SURGERY", "CARE", "UNIVERSITY", "COLLEGE", "SCHOOL", "AUTHORITY", "TRANSIT", "EDUCATION", "BOARD", "CAPITAL", "N.A.", "NA,"
 }
 
+_ORG_KW_CLEAN = [k.strip(".,") for k in ENTITY_KEYWORDS if k.strip(".,")]
+_ORG_RE = re.compile(r"\b(" + "|".join(re.escape(k) for k in _ORG_KW_CLEAN) + r")\b")
+_NA_RE = re.compile(r"\bN\.?A\.?\b")
+
+def _is_org_name(upper_name):
+    return bool(_ORG_RE.search(upper_name)) or bool(_NA_RE.search(upper_name))
+
 def find_or_create_node(G, name_str):
     if not name_str or len(name_str) < 3: return None
     
     upper_str = name_str.upper()
     
     # 1. Check for Entities (Hospitals, Banks, etc.) -> org| node
-    if any(kw in upper_str for kw in ENTITY_KEYWORDS):
+    if _is_org_name(upper_str):
         key = f"org|{upper_str}"
         if key not in G:
             G.add_node(key, type="org", kind="organization", name=upper_str, source="court_record")
@@ -167,7 +174,9 @@ def main():
     print(f"Added {added_courts} court edges.")
     print(f"Graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} edges")
     
-    pickle.dump(G, open(GRAPH_PATH, "wb"))
+    _tmp_path = GRAPH_PATH + ".tmp"
+    pickle.dump(G, open(_tmp_path, "wb"))
+    os.replace(_tmp_path, GRAPH_PATH)
     print(f"Saved to {GRAPH_PATH}")
 
 if __name__ == "__main__":

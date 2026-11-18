@@ -81,12 +81,12 @@ var options = {
   "edges": {"smooth": false},
   "physics": {
     "barnesHut": {
-      "gravitationalConstant": -8000,
-      "centralGravity": 0.3,
-      "springLength": 95,
-      "springConstant": 0.04,
-      "damping": 0.09,
-      "avoidOverlap": 0.1
+      "gravitationalConstant": -300000,
+      "centralGravity": 0.1,
+      "springLength": 250,
+      "springConstant": 0.02,
+      "damping": 0.5,
+      "avoidOverlap": 0.5
     },
     "solver": "barnesHut",
     "stabilization": {"iterations": 100}
