@@ -11,3 +11,8 @@ analysis/cuyahoga/data/
 *.zip
 *.csv
 server*.log
+golden_dataset_cluster_studio.html
+cuyahoga_resolved_clusters.parquet
+cuyahoga_pruned_graph.graphml
+cuyahoga_cluster_studio.html
+cuyahoga_pipeline_stats.json

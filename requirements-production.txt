@@ -1,0 +1,9 @@
+# Production-only dependencies for splink_graph_pipeline.py.
+# The base project deliberately keeps its runtime dependencies small.
+pandas
+pyarrow
+duckdb
+splink==5.0.0
+networkx
+tqdm
+lxml

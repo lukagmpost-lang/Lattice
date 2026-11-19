@@ -25,6 +25,39 @@ and `edgar_load.py` add SOS/SEC layers to the unified graph.
 `dl_transfers.py`, `merge_derive.py`, `fix_v5.py`, `load_sos.py`, `edgar_load.py`,
 `audit_transfers.py`, `audit_fix.py`.
 
+## Entity resolution + pruned graph
+
+`build_persons_enriched.py` flattens the person-owner nodes in
+`cuyahoga_unified.pkl` into `data/persons_enriched.parquet`.  The production
+`persons_enriched.parquet` referenced by earlier notes was not present in the
+repository, so this derived table is the current input.
+
+`splink_graph_pipeline.py` resolves duplicate owners with the golden-test
+Splink settings, relabels the directed transfer graph with cluster IDs, and
+prunes dead ends while preserving every cycle:
+
+```bash
+.venv/bin/python analysis/cuyahoga/build_persons_enriched.py
+.venv/bin/python splink_graph_pipeline.py \
+    --input analysis/cuyahoga/data/persons_enriched.parquet \
+    --graph-input ~/Desktop/cuyahoga_transfers.pkl \
+    --output-dir .
+```
+
+Outputs: `cuyahoga_resolved_clusters.parquet`,
+`cuyahoga_pruned_graph.graphml`, `cuyahoga_cluster_studio.html`, and
+`cuyahoga_pipeline_stats.json`.  EM training is opt-in (`--train`); the
+default uses the deterministic golden priors, which keep Jaro-Winkler name
+variants mergeable on sparse Cuyahoga fields.
+
+After Splink clustering, `split_conflicting_clusters()` forces records apart
+when both sides have different DOBs, voter IDs, or middle initials; missing
+values never conflict.  The cluster parquet includes the raw Splink ID
+(`splink_cluster_id`), the refined `cluster_id`, and a `confidence_level`:
+`HIGH` when at least two records in the cluster share a DOB or voter ID, `LOW`
+otherwise.  The refined IDs and confidence labels are also used by the
+GraphML cluster nodes and the Cluster Studio dashboard.
+
 ## Data ceiling
 
 `cuyahoga_transfers_raw.json` returns one row per parcel (last transfer only),
