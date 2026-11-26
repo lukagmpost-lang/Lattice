@@ -339,12 +339,26 @@ def test_prune_graph_keeps_disconnected_cycles_and_self_loops():
     assert stats["cycles"] == 2
 
 
+def test_prune_graph_accepts_an_empty_graph():
+    pruned, stats = pipeline.prune_graph_preserve_chains(
+        nx.DiGraph(), progress=False
+    )
+
+    assert pruned.number_of_nodes() == 0
+    assert stats["cycles"] == 0
+    assert stats["removed_nodes"] == 0
+
+
 def test_build_cluster_graph_collapses_parallel_edges():
     graph = nx.DiGraph()
     # Distinct source variants collapse onto the same cluster, which is the
     # parallel-edge case created by entity resolution.
-    graph.add_edge("owner|A1", "owner|B1", weight=1, total_amount=10.0)
-    graph.add_edge("owner|A2", "owner|B1", weight=2, total_amount=5.0)
+    graph.add_edge(
+        "owner|A1", "owner|B1", weight=1, total_amount=10.0, book_pages=["BP1"]
+    )
+    graph.add_edge(
+        "owner|A2", "owner|B1", weight=2, total_amount=5.0, book_pages=["BP2", "BP3"]
+    )
     graph.add_edge("owner|B1", "owner|A1", weight=1, total_amount=1.0)
 
     cluster_graph, stats = pipeline.build_cluster_graph(
@@ -357,10 +371,66 @@ def test_build_cluster_graph_collapses_parallel_edges():
     edge = cluster_graph["cluster:10"]["cluster:11"]
     assert edge["weight"] == 3
     assert edge["total_amount"] == 15.0
-    assert edge["n_transactions"] == 2
+    assert edge["n_transactions"] == 3
+    assert edge["book_pages"] == ["BP1", "BP2", "BP3"]
     assert cluster_graph.nodes["cluster:10"]["label"] == "A PERSON"
     assert cluster_graph.nodes["cluster:10"]["cluster_size"] == 2
     assert stats["output_edges"] == 2
+    assert stats["resolved_nodes"] == 3
+    assert not stats["transaction_provenance_complete"]
+
+
+def test_build_cluster_graph_deduplicates_joint_party_transaction_ids():
+    transaction = {
+        "transaction_id": "tx-1",
+        "source_row": 0,
+        "parcel_id": "P1",
+        "date": "2024-01-02",
+        "amount": 100.0,
+        "book_page": "BP1",
+    }
+    graph = nx.DiGraph()
+    graph.add_edge(
+        "owner|A1", "owner|B1", weight=1, total_amount=100.0,
+        book_pages=["BP1"], transactions=[transaction],
+    )
+    graph.add_edge(
+        "owner|A2", "owner|B1", weight=1, total_amount=100.0,
+        book_pages=["BP1"], transactions=[transaction],
+    )
+
+    cluster_graph, stats = pipeline.build_cluster_graph(
+        graph,
+        {"owner|A1": "10", "owner|A2": "10", "owner|B1": "11"},
+    )
+
+    edge = cluster_graph["cluster:10"]["cluster:11"]
+    assert edge["weight"] == 1
+    assert edge["n_transactions"] == 1
+    assert edge["party_pair_weight"] == 2
+    assert edge["total_amount"] == 100
+    assert edge["book_pages"] == ["BP1"]
+    assert edge["transactions"] == [transaction]
+    assert edge["first_date"] == "2024-01-02"
+    assert edge["last_date"] == "2024-01-02"
+    assert stats["transaction_provenance_complete"]
+
+
+def test_build_cluster_graph_preserves_unresolved_endpoints_and_counts_actual_mappings():
+    graph = nx.DiGraph()
+    graph.add_edge("owner|A", "owner|UNKNOWN", weight=2, total_amount=10)
+    graph.add_node("owner|ISOLATED")
+
+    cluster_graph, stats = pipeline.build_cluster_graph(
+        graph,
+        {"owner|A": "10", "owner|NOT_IN_GRAPH": "11"},
+    )
+
+    assert cluster_graph.has_edge("cluster:10", "owner|UNKNOWN")
+    assert not cluster_graph.nodes["owner|UNKNOWN"]["resolved"]
+    assert stats["resolution_mappings"] == 2
+    assert stats["resolved_nodes"] == 1
+    assert stats["unresolved_input_nodes"] == 2
 
 
 def test_write_graphml_sanitizes_attributes_and_round_trips(tmp_path: Path):
@@ -404,3 +474,34 @@ def test_load_graph_rejects_undirected(tmp_path: Path):
 
     with pytest.raises(TypeError):
         pipeline.load_graph(path)
+
+
+def test_load_graph_requires_real_input_unless_demo_is_explicit():
+    with pytest.raises(ValueError, match="--demo"):
+        pipeline.load_graph(None)
+
+    demo = pipeline.load_graph(None, demo=True)
+    assert set(demo.nodes()) == set(pipeline.create_sample_graph().nodes())
+
+
+def test_graphml_preserves_transaction_provenance(tmp_path: Path):
+    graph = nx.DiGraph()
+    graph.add_edge(
+        "a",
+        "b",
+        book_pages=["BP1", "BP1"],
+        transactions=[
+            {"transaction_id": "tx-1", "amount": 10.0, "book_page": "BP1"},
+            {"transaction_id": "tx-2", "amount": 20.0, "book_page": "BP1"},
+        ],
+    )
+    path = tmp_path / "provenance.graphml"
+
+    pipeline.write_graphml(graph, path)
+    loaded = nx.read_graphml(path)
+
+    edge = loaded["a"]["b"]
+    assert json.loads(edge["book_pages"]) == ["BP1", "BP1"]
+    assert [
+        item["transaction_id"] for item in json.loads(edge["transactions"])
+    ] == ["tx-1", "tx-2"]

@@ -1,325 +1,577 @@
 #!/usr/bin/env python3
-"""
-High-Value Parcel Transfer Network Generator
+"""Build a provenance-preserving Cluster -> Parcel -> Cluster network.
 
-Builds: Cluster A -> Parcel -> Cluster B graph from:
-  - Raw transfers JSON: parcel_id, grantor, grantee, book_page, amount, date
-  - Resolved clusters: cuyahoga_resolved_clusters.parquet (owner|NAME -> cluster_id)
-  - Unified graph: parcel situs addresses
-
-Filters: total_amount > $50,000 AND (at least one cluster confidence = HIGH)
-Outputs: 
-  - PNG visualization (HIGH-confidence only)
-  - Full network GraphML (all 570 matched edges)
-  - CSV of top 20 flipped parcels
+The current Cuyahoga export is a last-transfer snapshot, not deed history.
+The CSV therefore ranks observed cross-entity source transactions; it is not a
+historical property-flip ranking.  Qualifying transactions have a row-level
+amount strictly greater than $50,000 and HIGH confidence at both endpoints.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
+import math
 import pickle
 import re
-import pandas as pd
-import networkx as nx
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import numpy as np
+import sys
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
-from collections import defaultdict, Counter
 
-def normalize_name(name: str) -> str:
-    """Normalize name for matching: strip, uppercase, collapse spaces. KEEP owner| prefix."""
-    if not name:
-        return ''
-    return re.sub(r'\s+', ' ', name.strip().upper())
+import matplotlib
 
-def split_grantees(grantee: str) -> list[str]:
-    """Split compound grantee on '&' and normalize each."""
-    parts = [normalize_name(p) for p in grantee.split('&')]
-    return [p for p in parts if p]
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import networkx as nx
+import pandas as pd
 
-# ============================================================
-# 1. LOAD RESOLVED CLUSTERS
-# ============================================================
-print("Loading cuyahoga_resolved_clusters.parquet...")
-clusters_df = pd.read_parquet('cuyahoga_resolved_clusters.parquet')
+_ROOT = Path(__file__).resolve().parent
+_SRC = _ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-owner_to_cluster = dict(zip(
-    clusters_df['node_id'].astype(str).apply(normalize_name),
-    clusters_df['cluster_id']
-))
-cluster_confidence = clusters_df.drop_duplicates('cluster_id').set_index('cluster_id')['confidence_level'].to_dict()
-cluster_label = clusters_df.drop_duplicates('cluster_id').set_index('cluster_id')['full_name'].to_dict()
+from osi.loaders.cuyahoga_transfers import (  # noqa: E402
+    iter_transfer_transactions,
+    load_rows,
+)
 
-print(f"  {len(owner_to_cluster):,} owners mapped to clusters")
-print(f"  {len(cluster_confidence):,} unique clusters")
+DEFAULT_RAW = Path.home() / "Desktop" / "cuyahoga_transfers_raw.json"
+DEFAULT_CLUSTERS = _ROOT / "cuyahoga_resolved_clusters.parquet"
+DEFAULT_UNIFIED = Path.home() / "Desktop" / "cuyahoga_unified.pkl"
 
-# ============================================================
-# 2. BUILD PARCEL LOOKUP FROM RAW JSON
-# ============================================================
-print("Loading cuyahoga_transfers_raw.json (for parcel_id)...")
-with open('/Users/2950639/Desktop/cuyahoga_transfers_raw.json', 'r') as f:
-    raw_data = json.load(f)
+RANKING_COLUMNS = [
+    "parcel_id",
+    "situs",
+    "observed_transfer_count",
+    "distinct_clusters",
+    "distinct_cluster_pairs",
+    "total_volume",
+    "avg_amount",
+    "first_transfer_date",
+    "last_transfer_date",
+    "transaction_ids",
+    "clusters",
+]
 
-parcel_lookup = {}
-for feat in raw_data['features']:
-    a = feat.get('attributes', {})
-    grantor = 'OWNER|' + normalize_name(a.get('grantor', ''))
-    grantee_full = 'OWNER|' + normalize_name(a.get('grantee', ''))
-    book_page = normalize_name(a.get('book_page', ''))
-    parcel_id = a.get('parcel_id', '').strip()
-    if not (grantor and parcel_id):
-        continue
-    for grantee in split_grantees(grantee_full):
-        key = (grantor, grantee, book_page)
-        parcel_lookup[key] = parcel_id
 
-print(f"  {len(parcel_lookup):,} parcel mappings from raw JSON")
+def normalize_name(value: object) -> str:
+    """Normalize owner-node keys without losing the owner namespace."""
+    return re.sub(r"\s+", " ", str(value or "").strip().upper())
 
-# Parcel situs from unified graph
-print("Loading cuyahoga_unified.pkl for parcel situs...")
-with open('/Users/2950639/Desktop/cuyahoga_unified.pkl', 'rb') as f:
-    unified = pickle.load(f)
 
-parcel_situs = {}
-for node, data in unified.nodes(data=True):
-    if data.get('type') == 'parcel':
-        parcel_situs[f"parcel|{data.get('pid', '')}"] = data.get('situs', '')
+def build_cluster_index(frame: pd.DataFrame) -> dict:
+    """Validate resolved-cluster data and construct deterministic lookups."""
+    required = {"node_id", "cluster_id", "confidence_level", "full_name"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"cluster parquet missing columns: {sorted(missing)}")
 
-print(f"  {len(parcel_situs):,} parcels with situs addresses")
+    if frame[["node_id", "cluster_id"]].isna().any().any():
+        raise ValueError("node_id and cluster_id must not be null")
+    invalid_confidence = ~frame["confidence_level"].isin(["HIGH", "LOW"])
+    if invalid_confidence.any():
+        values = sorted(
+            frame.loc[invalid_confidence, "confidence_level"].astype(str).unique()
+        )
+        raise ValueError(f"invalid confidence_level values: {values}")
 
-# ============================================================
-# 3. LOAD TRANSFER GRAPH AND MATCH TO PARCELS
-# ============================================================
-print("Loading cuyahoga_transfers.pkl...")
-with open('/Users/2950639/Desktop/cuyahoga_transfers.pkl', 'rb') as f:
-    transfers = pickle.load(f)
+    owner_to_cluster: dict[str, str] = {}
+    for node_id, cluster_id in zip(frame["node_id"], frame["cluster_id"]):
+        key = normalize_name(node_id)
+        cluster = str(cluster_id)
+        if not key or not cluster:
+            raise ValueError("blank node_id or cluster_id in cluster parquet")
+        previous = owner_to_cluster.get(key)
+        if previous is not None and previous != cluster:
+            raise ValueError(f"normalized owner maps to multiple clusters: {key}")
+        owner_to_cluster[key] = cluster
 
-high_conf_edges = []      # at least one cluster HIGH
-all_matched_edges = []    # all 570 matched edges
-parcel_flip_pairs = defaultdict(set)
-
-matched_total = 0
-matched_high = 0
-
-for source, target, tdata in transfers.edges(data=True):
-    amount = tdata.get('total_amount', 0)
-    if amount <= 50000:
-        continue
-    
-    source = str(source)
-    target = str(target)
-    
-    source_norm = normalize_name(source)
-    target_norm = normalize_name(target)
-    
-    cluster_a = owner_to_cluster.get(source_norm)
-    cluster_b = owner_to_cluster.get(target_norm)
-    
-    if cluster_a is None or cluster_b is None:
-        continue
-    if cluster_a == cluster_b:
-        continue
-    
-    conf_a = cluster_confidence.get(cluster_a, 'LOW')
-    conf_b = cluster_confidence.get(cluster_b, 'LOW')
-    is_high_conf = (conf_a == 'HIGH' or conf_b == 'HIGH')
-    
-    book_pages = tdata.get('book_pages', [])
-    parcel_id = None
-    matched_bp = ''
-    for bp in book_pages:
-        bp_clean = normalize_name(bp)
-        key = (source_norm, target_norm, bp_clean)
-        if key in parcel_lookup:
-            parcel_id = parcel_lookup[key]
-            matched_bp = bp_clean
-            break
-    
-    if not parcel_id:
-        continue
-    
-    matched_total += 1
-    edge_data = {
-        'cluster_a': cluster_a,
-        'cluster_b': cluster_b,
-        'label_a': cluster_label.get(cluster_a, f'cluster:{cluster_a}'),
-        'label_b': cluster_label.get(cluster_b, f'cluster:{cluster_b}'),
-        'parcel': parcel_id,
-        'situs': parcel_situs.get(f'parcel|{parcel_id}', ''),
-        'amount': amount,
-        'date': tdata.get('first_date', ''),
-        'reference': matched_bp,
-        'weight': tdata.get('weight', 1),
-        'n_transactions': tdata.get('n_transactions', 1),
-        'conf_a': conf_a,
-        'conf_b': conf_b,
+    rows = frame.copy()
+    rows["cluster_id"] = rows["cluster_id"].astype(str)
+    confidence_counts = rows.groupby("cluster_id")["confidence_level"].nunique()
+    inconsistent = confidence_counts[confidence_counts > 1]
+    if not inconsistent.empty:
+        raise ValueError(
+            "clusters have inconsistent confidence levels: "
+            + ", ".join(inconsistent.index[:10])
+        )
+    ordered = rows.sort_values("node_id").drop_duplicates("cluster_id")
+    return {
+        "owner_to_cluster": owner_to_cluster,
+        "cluster_confidence": ordered.set_index("cluster_id")[
+            "confidence_level"
+        ].astype(str).to_dict(),
+        "cluster_label": ordered.set_index("cluster_id")["full_name"]
+        .astype(str)
+        .to_dict(),
     }
-    all_matched_edges.append(edge_data)
-    parcel_flip_pairs[parcel_id].add((cluster_a, cluster_b))
-    
-    if is_high_conf:
-        matched_high += 1
-        high_conf_edges.append(edge_data)
 
-print(f"\n  Total matched transfers with parcels: {matched_total}")
-print(f"  With at least one HIGH-confidence cluster: {matched_high}")
-print(f"  All LOW-confidence: {matched_total - matched_high}")
 
-# ============================================================
-# 4. BUILD NETWORKX GRAPHS
-# ============================================================
-def build_graph(edges, name):
-    H = nx.DiGraph()
-    clusters_in = set()
-    for e in edges:
-        clusters_in.add(e['cluster_a'])
-        clusters_in.add(e['cluster_b'])
-    for cid in clusters_in:
-        H.add_node(f"cluster:{cid}", 
-                   label=cluster_label.get(cid, f'Cluster {cid}'),
-                   type='cluster',
-                   confidence=cluster_confidence.get(cid, 'LOW'),
-                   cluster_id=cid)
-    for e in edges:
-        parcel_node = f"parcel|{e['parcel']}"
-        if parcel_node not in H:
-            H.add_node(parcel_node,
-                       label=e['situs'][:50] if e['situs'] else parcel_node,
-                       type='parcel',
-                       situs=e['situs'],
-                       parcel_id=e['parcel'])
-        H.add_edge(f"cluster:{e['cluster_a']}", parcel_node,
-                   cluster_a=e['cluster_a'], cluster_b=e['cluster_b'],
-                   amount=e['amount'], date=e['date'], reference=e['reference'],
-                   weight=e['weight'], n_transactions=e['n_transactions'],
-                   direction='out')
-        H.add_edge(parcel_node, f"cluster:{e['cluster_b']}",
-                   cluster_a=e['cluster_a'], cluster_b=e['cluster_b'],
-                   amount=e['amount'], date=e['date'], reference=e['reference'],
-                   weight=e['weight'], n_transactions=e['n_transactions'],
-                   direction='in')
-    print(f"  {name}: {H.number_of_nodes()} nodes, {H.number_of_edges()} edges")
-    return H
+def load_parcel_situs(path: Path) -> dict[str, str]:
+    with path.open("rb") as handle:
+        unified = pickle.load(handle)
+    situs: dict[str, str] = {}
+    for node, data in unified.nodes(data=True):
+        if data.get("type") != "parcel":
+            continue
+        parcel_id = str(data.get("pid") or "").strip()
+        if not parcel_id and str(node).startswith("parcel|"):
+            parcel_id = str(node).split("|", 1)[1]
+        if parcel_id:
+            situs[parcel_id] = str(data.get("situs") or "")
+    return situs
 
-print("\nBuilding HIGH-confidence network...")
-H_high = build_graph(high_conf_edges, "HIGH-confidence")
 
-print("Building full matched network...")
-H_all = build_graph(all_matched_edges, "Full matched")
+def _owner_cluster(party: str, owner_to_cluster: dict[str, str]) -> str | None:
+    return owner_to_cluster.get(normalize_name(f"owner|{party}"))
 
-# ============================================================
-# 5. TOP 20 FLIPPED PARCELS CSV
-# ============================================================
-flip_counts = {p: len(pairs) for p, pairs in parcel_flip_pairs.items()}
-top20 = sorted(flip_counts.items(), key=lambda x: -x[1])[:20]
 
-csv_rows = []
-for parcel, flip_count in top20:
-    total_amt = sum(e['amount'] for e in all_matched_edges if e['parcel'] == parcel)
-    clusters_involved = set()
-    for e in all_matched_edges:
-        if e['parcel'] == parcel:
-            clusters_involved.add(e['cluster_a'])
-            clusters_involved.add(e['cluster_b'])
-    csv_rows.append({
-        'parcel_id': parcel,
-        'situs': parcel_situs.get(f'parcel|{parcel}', ''),
-        'flip_count': flip_count,
-        'distinct_clusters': len(clusters_involved),
-        'total_volume': total_amt,
-        'avg_amount': total_amt / flip_count if flip_count else 0,
-        'clusters': '; '.join(str(c) for c in clusters_involved),
-    })
+def analyze_transactions(
+    rows: list[dict],
+    cluster_index: dict,
+    *,
+    amount_threshold: float = 50_000,
+) -> tuple[list[dict], dict[str, int]]:
+    """Return qualifying transaction/cluster-pair associations and coverage."""
+    owner_to_cluster = cluster_index["owner_to_cluster"]
+    confidence = cluster_index["cluster_confidence"]
+    stats: Counter[str] = Counter()
+    associations: list[dict] = []
+    qualifying_parcels: set[str] = set()
 
-csv_df = pd.DataFrame(csv_rows)
-csv_df.to_csv('top20_flipped_parcels.csv', index=False)
-print(f"\nTop 20 flipped parcels written to top20_flipped_parcels.csv")
-if len(csv_df) > 0:
-    print(csv_df[['parcel_id', 'flip_count', 'distinct_clusters', 'total_volume', 'situs']].to_string(index=False))
+    for transaction in iter_transfer_transactions(rows):
+        stats["raw_rows"] += 1
+        amount = transaction["amount"]
+        if amount is None:
+            stats["rows_with_invalid_amount"] += 1
+            continue
+        if amount <= amount_threshold:
+            continue
+        stats["amount_eligible_rows"] += 1
+        parcel_id = transaction["parcel_id"]
+        if not parcel_id:
+            stats["rows_without_parcel_id"] += 1
+            continue
 
-# ============================================================
-# 6. RENDER PNGs
-# ============================================================
-def render_png(H, output_path, title_suffix):
-    if H.number_of_nodes() == 0:
-        print(f"  {output_path}: No data to visualize")
-        return
-    
-    print(f"\nRendering {output_path}...")
-    pos = nx.kamada_kawai_layout(H, scale=2.0)
-    
-    cluster_nodes = [n for n, d in H.nodes(data=True) if d.get('type') == 'cluster']
-    parcel_nodes = [n for n, d in H.nodes(data=True) if d.get('type') == 'parcel']
-    
-    fig, ax = plt.subplots(figsize=(24, 24), facecolor='#0f0f1a')
-    ax.set_facecolor('#0f0f1a')
-    
-    edge_colors = []
-    edge_widths = []
-    for u, v, d in H.edges(data=True):
-        amt = d.get('amount', 50000)
-        edge_colors.append('#00d4aa' if d.get('direction') == 'out' else '#008866')
-        edge_widths.append(0.5 + min(amt / 100000, 3.0))
-    
-    nx.draw_networkx_edges(H, pos, edge_color=edge_colors, width=edge_widths,
-                           alpha=0.35, arrows=True, arrowsize=10, arrowstyle='-|>', ax=ax)
-    
-    nx.draw_networkx_nodes(H, pos, nodelist=parcel_nodes, node_color='#ffaa00',
-                           node_size=80, node_shape='s', edgecolors='#ffcc44',
-                           linewidths=0.8, alpha=0.9, ax=ax, label='Parcel')
-    
-    cluster_sizes = [100 + H.degree(n) * 30 for n in cluster_nodes]
-    cluster_colors = ['#00d4aa' if H.nodes[n].get('confidence') == 'HIGH' else '#ff6b6b' 
-                      for n in cluster_nodes]
-    cluster_borders = ['#00ffcc' if H.nodes[n].get('confidence') == 'HIGH' else '#ff9999'
-                       for n in cluster_nodes]
-    
-    for i, n in enumerate(cluster_nodes):
-        nx.draw_networkx_nodes(H, pos, nodelist=[n], node_color=cluster_colors[i],
-                               node_size=cluster_sizes[i], node_shape='o',
-                               edgecolors=cluster_borders[i], linewidths=1.2,
-                               alpha=0.95, ax=ax)
-    
-    top_parcel_nodes = sorted(parcel_nodes, key=lambda n: H.degree(n), reverse=True)[:30]
-    label_nodes = cluster_nodes + top_parcel_nodes
-    labels = {n: H.nodes[n].get('label', n) for n in label_nodes}
-    
-    nx.draw_networkx_labels(H, pos, labels=labels, font_size=7,
-                            font_color='#eaeaea', font_weight='bold', ax=ax)
-    
-    ax.set_title(
-        f'High-Value Parcel Transfer Network\n'
-        f'Cluster -> Parcel -> Cluster | Amount > $50K | {title_suffix}',
-        fontsize=18, color='#eaeaea', pad=20
-    )
-    
-    from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='#00d4aa', markeredgecolor='#00ffcc',
-               markersize=12, label='HIGH-Confidence Cluster', markeredgewidth=1.2),
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='#ff6b6b', markeredgecolor='#ff9999',
-               markersize=12, label='LOW-Confidence Cluster', markeredgewidth=1.2),
-        Line2D([0], [0], marker='s', color='w', markerfacecolor='#ffaa00', markeredgecolor='#ffcc44',
-               markersize=10, label='Parcel', markeredgewidth=0.8),
-        Line2D([0], [0], color='#00d4aa', lw=2, label='Transfer Out'),
-        Line2D([0], [0], color='#008866', lw=2, label='Transfer In'),
+        grantors: set[str] = set()
+        grantees: set[str] = set()
+        for party in transaction["grantors"]:
+            cluster = _owner_cluster(party, owner_to_cluster)
+            if cluster is None:
+                stats["unresolved_grantor_parties"] += 1
+            else:
+                grantors.add(cluster)
+        for party in transaction["grantees"]:
+            cluster = _owner_cluster(party, owner_to_cluster)
+            if cluster is None:
+                stats["unresolved_grantee_parties"] += 1
+            else:
+                grantees.add(cluster)
+        if not grantors or not grantees:
+            stats["rows_without_two_resolved_sides"] += 1
+            continue
+
+        cross_pairs = {
+            (grantor, grantee)
+            for grantor in grantors
+            for grantee in grantees
+            if grantor != grantee
+        }
+        if not cross_pairs:
+            stats["rows_with_only_same_cluster_pairs"] += 1
+            continue
+        stats["rows_with_cross_entity_pair"] += 1
+        stats["cross_entity_transaction_cluster_pairs"] += len(cross_pairs)
+
+        qualifying = {
+            (grantor, grantee)
+            for grantor, grantee in cross_pairs
+            if confidence.get(grantor, "LOW") == "HIGH"
+            and confidence.get(grantee, "LOW") == "HIGH"
+        }
+        if not qualifying:
+            continue
+        stats["rows_with_both_high_pair"] += 1
+        stats["both_high_transaction_cluster_pairs"] += len(qualifying)
+        qualifying_parcels.add(parcel_id)
+        if len(qualifying) > 1:
+            stats["both_high_rows_with_multiple_cluster_pairs"] += 1
+
+        for grantor, grantee in sorted(qualifying):
+            associations.append(
+                {
+                    "transaction_id": transaction["transaction_id"],
+                    "source_row": transaction["source_row"],
+                    "parcel_id": parcel_id,
+                    "amount": amount,
+                    "date": transaction["date"] or "",
+                    "book_page": transaction["book_page"] or "",
+                    "raw_grantor": transaction["raw_grantor"],
+                    "raw_grantee": transaction["raw_grantee"],
+                    "cluster_a": grantor,
+                    "cluster_b": grantee,
+                    "conf_a": confidence.get(grantor, "LOW"),
+                    "conf_b": confidence.get(grantee, "LOW"),
+                }
+            )
+
+    stats["both_high_parcels"] = len(qualifying_parcels)
+    keys = [
+        "raw_rows",
+        "rows_with_invalid_amount",
+        "amount_eligible_rows",
+        "rows_without_parcel_id",
+        "unresolved_grantor_parties",
+        "unresolved_grantee_parties",
+        "rows_without_two_resolved_sides",
+        "rows_with_only_same_cluster_pairs",
+        "rows_with_cross_entity_pair",
+        "cross_entity_transaction_cluster_pairs",
+        "rows_with_both_high_pair",
+        "both_high_transaction_cluster_pairs",
+        "both_high_rows_with_multiple_cluster_pairs",
+        "both_high_parcels",
     ]
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=11,
-              facecolor='#1a1a2e', edgecolor='#444', labelcolor='#eaeaea')
-    ax.axis('off')
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=300, facecolor='#0f0f1a', bbox_inches='tight')
-    print(f"  PNG saved to {output_path}")
+    return associations, {key: int(stats[key]) for key in keys}
 
-# Render HIGH-confidence only
-render_png(H_high, 'high_value_parcel_transfer_network_high_conf.png', 'Confidence = HIGH (at least one)')
 
-# Render full network
-render_png(H_all, 'high_value_parcel_transfer_network_full.png', 'All Matched Transfers')
+def build_graph(
+    associations: list[dict],
+    cluster_index: dict,
+    parcel_situs: dict[str, str],
+) -> nx.MultiDiGraph:
+    """Build transaction-keyed half-edges without overwriting provenance."""
+    graph = nx.MultiDiGraph()
+    labels = cluster_index["cluster_label"]
+    confidence = cluster_index["cluster_confidence"]
+    for item in associations:
+        for cluster in (item["cluster_a"], item["cluster_b"]):
+            node = f"cluster:{cluster}"
+            if node not in graph:
+                graph.add_node(
+                    node,
+                    type="cluster",
+                    cluster_id=cluster,
+                    label=labels.get(cluster, f"Cluster {cluster}"),
+                    confidence=confidence.get(cluster, "LOW"),
+                )
+        parcel_node = f"parcel|{item['parcel_id']}"
+        if parcel_node not in graph:
+            address = parcel_situs.get(item["parcel_id"], "")
+            graph.add_node(
+                parcel_node,
+                type="parcel",
+                parcel_id=item["parcel_id"],
+                situs=address,
+                label=address[:50] if address else parcel_node,
+            )
 
-# Save GraphMLs
-nx.write_graphml(H_high, 'high_value_parcel_network_high_conf.graphml')
-nx.write_graphml(H_all, 'high_value_parcel_network_full.graphml')
-print("\nGraphML files saved.")
+        common = {
+            "transaction_id": item["transaction_id"],
+            "source_row": item["source_row"],
+            "parcel_id": item["parcel_id"],
+            "cluster_a": item["cluster_a"],
+            "cluster_b": item["cluster_b"],
+            "conf_a": item["conf_a"],
+            "conf_b": item["conf_b"],
+            "amount": item["amount"],
+            "total_amount": item["amount"],
+            "date": item["date"],
+            "reference": item["book_page"],
+            "book_page": item["book_page"],
+            "raw_grantor": item["raw_grantor"],
+            "raw_grantee": item["raw_grantee"],
+            "weight": 1,
+            "n_transactions": 1,
+        }
+        key = (
+            f"{item['transaction_id']}:{item['cluster_a']}:"
+            f"{item['cluster_b']}"
+        )
+        graph.add_edge(
+            f"cluster:{item['cluster_a']}",
+            parcel_node,
+            key=f"{key}:out",
+            direction="out",
+            **common,
+        )
+        graph.add_edge(
+            parcel_node,
+            f"cluster:{item['cluster_b']}",
+            key=f"{key}:in",
+            direction="in",
+            **common,
+        )
+    return graph
 
-print("\nDone!")
+
+def rank_parcels(
+    associations: list[dict],
+    parcel_situs: dict[str, str],
+    *,
+    top_n: int = 20,
+) -> pd.DataFrame:
+    """Rank parcels by source transactions, deduplicating joint-party pairs."""
+    transactions: dict[str, dict[str, dict]] = defaultdict(dict)
+    pairs: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    for item in associations:
+        parcel = item["parcel_id"]
+        transactions[parcel].setdefault(item["transaction_id"], item)
+        pairs[parcel].add((item["cluster_a"], item["cluster_b"]))
+
+    rows = []
+    for parcel, parcel_transactions in transactions.items():
+        items = list(parcel_transactions.values())
+        clusters = {
+            cluster
+            for pair in pairs[parcel]
+            for cluster in pair
+        }
+        volume = sum(float(item["amount"] or 0.0) for item in items)
+        dates = sorted(item["date"] for item in items if item["date"])
+        rows.append(
+            {
+                "parcel_id": parcel,
+                "situs": parcel_situs.get(parcel, ""),
+                "observed_transfer_count": len(items),
+                "distinct_clusters": len(clusters),
+                "distinct_cluster_pairs": len(pairs[parcel]),
+                "total_volume": volume,
+                "avg_amount": volume / len(items),
+                "first_transfer_date": dates[0] if dates else "",
+                "last_transfer_date": dates[-1] if dates else "",
+                "transaction_ids": ";".join(sorted(parcel_transactions)),
+                "clusters": ";".join(sorted(clusters)),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            -row["observed_transfer_count"],
+            -row["total_volume"],
+            row["parcel_id"],
+        )
+    )
+    return pd.DataFrame(rows[:top_n], columns=RANKING_COLUMNS)
+
+
+def _component_layout(graph: nx.MultiDiGraph, seed: int) -> dict:
+    """Lay out disconnected components separately on a deterministic grid."""
+    components = sorted(
+        nx.connected_components(graph.to_undirected()),
+        key=lambda component: (-len(component), sorted(component)[0]),
+    )
+    columns = max(1, math.ceil(math.sqrt(len(components))))
+    positions = {}
+    for index, component in enumerate(components):
+        subgraph = graph.subgraph(component)
+        local = nx.spring_layout(
+            subgraph,
+            seed=seed + index,
+            weight="weight",
+            scale=1.0,
+        )
+        offset_x = (index % columns) * 3.2
+        offset_y = -(index // columns) * 3.2
+        for node, (x, y) in local.items():
+            positions[node] = (x + offset_x, y + offset_y)
+    return positions
+
+
+def render_png(
+    graph: nx.MultiDiGraph,
+    output_path: Path,
+    *,
+    seed: int = 42,
+    dpi: int = 300,
+) -> None:
+    """Render a force-directed network or an explicit no-data image."""
+    if graph.number_of_nodes() == 0:
+        fig, ax = plt.subplots(figsize=(16, 10), facecolor="#0f0f1a")
+        ax.set_facecolor("#0f0f1a")
+        ax.text(
+            0.5,
+            0.56,
+            "No qualifying parcel transfers",
+            ha="center",
+            va="center",
+            fontsize=26,
+            color="#eaeaea",
+            weight="bold",
+            transform=ax.transAxes,
+        )
+        ax.text(
+            0.5,
+            0.43,
+            "Amount > $50,000 | Different entities | Both endpoints HIGH\n"
+            "Source: last-transfer snapshot (not deed history)",
+            ha="center",
+            va="center",
+            fontsize=14,
+            color="#b8b8c8",
+            transform=ax.transAxes,
+        )
+        ax.axis("off")
+        fig.savefig(output_path, dpi=dpi, facecolor=fig.get_facecolor())
+        plt.close(fig)
+        return
+
+    positions = _component_layout(graph, seed)
+    fig, ax = plt.subplots(figsize=(24, 24), facecolor="#0f0f1a")
+    ax.set_facecolor("#0f0f1a")
+    cluster_nodes = [
+        node for node, data in graph.nodes(data=True) if data.get("type") == "cluster"
+    ]
+    parcel_nodes = [
+        node for node, data in graph.nodes(data=True) if data.get("type") == "parcel"
+    ]
+    widths = [
+        0.5 + min(float(data.get("amount") or 0) / 100_000, 3.0)
+        for _, _, _, data in graph.edges(keys=True, data=True)
+    ]
+    colors = [
+        "#00d4aa" if data.get("direction") == "out" else "#008866"
+        for _, _, _, data in graph.edges(keys=True, data=True)
+    ]
+    nx.draw_networkx_edges(
+        graph,
+        positions,
+        edge_color=colors,
+        width=widths,
+        alpha=0.3,
+        arrows=True,
+        arrowsize=10,
+        ax=ax,
+    )
+    nx.draw_networkx_nodes(
+        graph,
+        positions,
+        nodelist=parcel_nodes,
+        node_color="#ffaa00",
+        node_size=80,
+        node_shape="s",
+        alpha=0.9,
+        ax=ax,
+    )
+    nx.draw_networkx_nodes(
+        graph,
+        positions,
+        nodelist=cluster_nodes,
+        node_color="#00d4aa",
+        node_size=[100 + graph.degree(node) * 30 for node in cluster_nodes],
+        alpha=0.95,
+        ax=ax,
+    )
+    label_nodes = sorted(
+        cluster_nodes + parcel_nodes,
+        key=lambda node: (-graph.degree(node), node),
+    )[:40]
+    nx.draw_networkx_labels(
+        graph,
+        positions,
+        labels={node: graph.nodes[node].get("label", node) for node in label_nodes},
+        font_size=7,
+        font_color="#eaeaea",
+        ax=ax,
+    )
+    ax.set_title(
+        "High-Value Parcel Transfer Network\n"
+        "Cluster -> Parcel -> Cluster | Amount > $50K | Both endpoints HIGH\n"
+        "Observed last-transfer snapshot; not historical deed-chain flips",
+        fontsize=18,
+        color="#eaeaea",
+        pad=20,
+    )
+    ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, facecolor=fig.get_facecolor(), bbox_inches="tight")
+    plt.close(fig)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--raw", default=str(DEFAULT_RAW))
+    parser.add_argument("--clusters", default=str(DEFAULT_CLUSTERS))
+    parser.add_argument("--unified", default=str(DEFAULT_UNIFIED))
+    parser.add_argument("--output-dir", default=".")
+    parser.add_argument("--amount-threshold", type=float, default=50_000)
+    parser.add_argument("--top-n", type=int, default=20)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--dpi", type=int, default=300)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.top_n < 1 or args.dpi < 1:
+        parser.error("--top-n and --dpi must be positive")
+    raw_path = Path(args.raw).expanduser()
+    clusters_path = Path(args.clusters).expanduser()
+    unified_path = Path(args.unified).expanduser()
+    for path in (raw_path, clusters_path, unified_path):
+        if not path.is_file():
+            parser.error(f"input not found: {path}")
+    output_dir = Path(args.output_dir).expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Loading clusters: {clusters_path}")
+    cluster_index = build_cluster_index(pd.read_parquet(clusters_path))
+    print(f"Loading parcel situs: {unified_path}")
+    parcel_situs = load_parcel_situs(unified_path)
+    print(f"Loading raw transactions: {raw_path}")
+    rows = load_rows(raw_path)
+    associations, coverage = analyze_transactions(
+        rows,
+        cluster_index,
+        amount_threshold=args.amount_threshold,
+    )
+    graph = build_graph(associations, cluster_index, parcel_situs)
+    ranking = rank_parcels(associations, parcel_situs, top_n=args.top_n)
+
+    graph_path = output_dir / "high_value_parcel_network_high_conf.graphml"
+    png_path = output_dir / "high_value_parcel_transfer_network_high_conf.png"
+    ranking_path = output_dir / "top20_parcel_transfers.csv"
+    audit_path = output_dir / "parcel_transfer_audit.json"
+    nx.write_graphml(graph, graph_path)
+    ranking.to_csv(ranking_path, index=False)
+    render_png(graph, png_path, seed=args.seed, dpi=args.dpi)
+
+    audit = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_grain": "last_transfer_snapshot",
+        "historical_flip_ranking_supported": False,
+        "filters": {
+            "amount_rule": f"row amount > {args.amount_threshold}",
+            "different_endpoint_clusters": True,
+            "both_endpoint_confidence": "HIGH",
+        },
+        "inputs": {
+            "raw": str(raw_path),
+            "clusters": str(clusters_path),
+            "unified": str(unified_path),
+        },
+        "coverage": coverage,
+        "qualifying_association_rows": len(associations),
+        "graph_nodes": graph.number_of_nodes(),
+        "graph_edges": graph.number_of_edges(),
+        "ranking_rows": len(ranking),
+        "outputs": {
+            "graphml": str(graph_path),
+            "png": str(png_path),
+            "ranking": str(ranking_path),
+        },
+    }
+    audit_path.write_text(json.dumps(audit, indent=2), encoding="utf-8")
+    print(json.dumps(coverage, indent=2))
+    print(f"GraphML: {graph_path}")
+    print(f"PNG: {png_path}")
+    print(f"Ranking: {ranking_path}")
+    print(f"Audit: {audit_path}")
+    if not associations:
+        print("No transactions satisfied all requested filters; empty outputs written.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

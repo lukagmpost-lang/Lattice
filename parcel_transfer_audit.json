@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-11-26T14:04:13.256869+00:00",
+  "source_grain": "last_transfer_snapshot",
+  "historical_flip_ranking_supported": false,
+  "filters": {
+    "amount_rule": "row amount > 50000",
+    "different_endpoint_clusters": true,
+    "both_endpoint_confidence": "HIGH"
+  },
+  "inputs": {
+    "raw": "/Users/2950639/Desktop/cuyahoga_transfers_raw.json",
+    "clusters": "cuyahoga_resolved_clusters.parquet",
+    "unified": "/Users/2950639/Desktop/cuyahoga_unified.pkl"
+  },
+  "coverage": {
+    "raw_rows": 499532,
+    "rows_with_invalid_amount": 0,
+    "amount_eligible_rows": 256269,
+    "rows_without_parcel_id": 0,
+    "unresolved_grantor_parties": 296308,
+    "unresolved_grantee_parties": 313070,
+    "rows_without_two_resolved_sides": 255175,
+    "rows_with_only_same_cluster_pairs": 205,
+    "rows_with_cross_entity_pair": 889,
+    "cross_entity_transaction_cluster_pairs": 976,
+    "rows_with_both_high_pair": 0,
+    "both_high_transaction_cluster_pairs": 0,
+    "both_high_rows_with_multiple_cluster_pairs": 0,
+    "both_high_parcels": 0
+  },
+  "qualifying_association_rows": 0,
+  "graph_nodes": 0,
+  "graph_edges": 0,
+  "ranking_rows": 0,
+  "outputs": {
+    "graphml": "high_value_parcel_network_high_conf.graphml",
+    "png": "high_value_parcel_transfer_network_high_conf.png",
+    "ranking": "top20_parcel_transfers.csv"
+  }
+}

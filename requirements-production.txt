@@ -1,5 +1,5 @@
-# Production-only dependencies for splink_graph_pipeline.py.
-# The base project deliberately keeps its runtime dependencies small.
+# Production dependencies for the Splink and parcel-transfer pipelines.
+# Keep this list aligned with the "production" extra in pyproject.toml.
 pandas
 pyarrow
 duckdb
@@ -7,3 +7,5 @@ splink==5.0.0
 networkx
 tqdm
 lxml
+matplotlib
+pyvis

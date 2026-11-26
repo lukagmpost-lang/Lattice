@@ -11,5 +11,5 @@ phonenumbers
 email-validator
 tldextract
 python-whois
-pyobjc-framework-Quartz
-pyobjc-framework-Vision
+pyobjc-framework-Quartz; platform_system == "Darwin"
+pyobjc-framework-Vision; platform_system == "Darwin"

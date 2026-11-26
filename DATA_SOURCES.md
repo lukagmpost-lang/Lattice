@@ -2,6 +2,11 @@
 
 Exact constants are the ones in the code. Counts after a crawl are the numbers that crawl printed.
 
+Historical-provenance note: `layers/reddit_archive.py`,
+`src/osi/loaders/reddit_duckdb.py`, `compare.py`, and `report.py` are not
+present in the current checkout. References to them below document how stored
+results were produced; they are not runnable reproduction commands.
+
 ## Reddit
 
 Stored user graphs: `r2008-v1` and `r2008-v2`, layer `reddit_user`, month `2008-01`. `r2012-v2`, layer `reddit_2012_user`, month `2012-08`. Both months use `layers/reddit_archive.py`.

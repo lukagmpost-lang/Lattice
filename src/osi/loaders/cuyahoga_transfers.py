@@ -8,9 +8,11 @@ the shared :mod:`osi.names` parser so a corporate name such as
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pickle
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,18 +73,58 @@ def load_rows(path: str | Path) -> list[dict]:
     ]
 
 
+def iter_transfer_transactions(rows: list[dict]) -> Iterator[dict]:
+    """Yield one provenance-rich transaction for each raw export row.
+
+    A transaction can involve several grantors and grantees.  Its stable ID is
+    shared by every owner-pair expansion so downstream cluster collapsing can
+    deduplicate the original deed instead of counting each party combination.
+    """
+    for source_row, row in enumerate(rows):
+        canonical = json.dumps(row, sort_keys=True, separators=(",", ":"), default=str)
+        digest = hashlib.blake2b(canonical.encode("utf-8"), digest_size=8).hexdigest()
+        yield {
+            "transaction_id": f"cuyahoga:{source_row}:{digest}",
+            "source_row": source_row,
+            "parcel_id": str(row.get("parcel_id") or "").strip(),
+            "grantors": transfer_parties(row.get("grantor")),
+            "grantees": transfer_parties(row.get("grantee")),
+            "raw_grantor": str(row.get("grantor") or ""),
+            "raw_grantee": str(row.get("grantee") or ""),
+            "date": _date(row.get("last_transfer_date")),
+            "amount": _float(row.get("last_sales_amount")),
+            "book_page": _n(row.get("book_page")) or None,
+        }
+
+
+def transaction_provenance(transaction: dict) -> dict:
+    """Return compact scalar attributes stored on aggregated graph edges."""
+    return {
+        key: transaction.get(key)
+        for key in (
+            "transaction_id",
+            "source_row",
+            "parcel_id",
+            "date",
+            "amount",
+            "book_page",
+        )
+    }
+
+
 def build_transfer_graph(rows: list[dict]) -> tuple[nx.DiGraph, list[tuple[str, list[str]]]]:
     graph = nx.DiGraph()
     amp_examples: list[tuple[str, list[str]]] = []
-    for row in rows:
-        grantors = transfer_parties(row.get("grantor"))
-        grantees = transfer_parties(row.get("grantee"))
+    for transaction in iter_transfer_transactions(rows):
+        grantors = transaction["grantors"]
+        grantees = transaction["grantees"]
         if not grantors or not grantees:
             continue
-        date = _date(row.get("last_transfer_date"))
-        amount = _float(row.get("last_sales_amount"))
-        book_page = _n(row.get("book_page")) or None
-        raw_grantor = str(row.get("grantor") or "")
+        date = transaction["date"]
+        amount = transaction["amount"]
+        book_page = transaction["book_page"]
+        provenance = transaction_provenance(transaction)
+        raw_grantor = transaction["raw_grantor"]
         if "&" in raw_grantor and len(amp_examples) < 8 and len(grantors) > 1:
             amp_examples.append((raw_grantor, grantors))
         for grantor in grantors:
@@ -93,7 +135,8 @@ def build_transfer_graph(rows: list[dict]) -> tuple[nx.DiGraph, list[tuple[str, 
                 if graph.has_edge(gk, tk):
                     edge = graph[gk][tk]
                     edge["weight"] += 1
-                    if amount:
+                    edge["n_transactions"] += 1
+                    if amount is not None:
                         edge["total_amount"] += amount
                     if date:
                         if not edge.get("first_date") or date < edge["first_date"]:
@@ -102,15 +145,18 @@ def build_transfer_graph(rows: list[dict]) -> tuple[nx.DiGraph, list[tuple[str, 
                             edge["last_date"] = date
                     if book_page:
                         edge["book_pages"].append(book_page)
+                    edge["transactions"].append(provenance)
                 else:
                     graph.add_edge(
                         gk,
                         tk,
                         weight=1,
+                        n_transactions=1,
                         total_amount=amount or 0.0,
                         first_date=date,
                         last_date=date,
                         book_pages=[book_page] if book_page else [],
+                        transactions=[provenance],
                         relation="transfer",
                     )
     return graph, amp_examples
@@ -127,8 +173,8 @@ def overlap_with_ownership(graph: nx.DiGraph, ownership_path: str | Path) -> dic
         for node in existing.nodes
         if str(node).startswith("owner|")
     }
-    grantors = {node for node, _ in graph.out_degree}
-    grantees = {node for _, node in graph.in_degree}
+    grantors = {node for node, degree in graph.out_degree if degree > 0}
+    grantees = {node for node, degree in graph.in_degree if degree > 0}
     transfer_names = {node[6:] for node in grantors | grantees}
     overlap = transfer_names & existing_owners
     return {

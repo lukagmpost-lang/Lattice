@@ -1,0 +1,87 @@
+{
+  "inputs": {
+    "transfer_nodes": 27738,
+    "transfer_edges": 30575,
+    "unified_nodes": 395427,
+    "unified_edges": 427096,
+    "resolved_owner_records": 99928
+  },
+  "social_input_edges": {
+    "divorced_from": 9791,
+    "litigated_with": 46266,
+    "married_to": 7973,
+    "mentioned_in_case": 20913
+  },
+  "social_input_total": 84943,
+  "social_output_edges": {
+    "divorced_from": 9753,
+    "litigated_with": 46042,
+    "married_to": 7921,
+    "mentioned_in_case": 20849
+  },
+  "social_output_total": 84565,
+  "deduplicated_mapped_edges": {
+    "divorced_from": 37,
+    "litigated_with": 224,
+    "married_to": 52,
+    "mentioned_in_case": 62
+  },
+  "deduplicated_mapped_total": 375,
+  "collapsed_self_loops": {
+    "divorced_from": 1,
+    "mentioned_in_case": 2
+  },
+  "collapsed_self_loop_total": 3,
+  "collapsed_self_loop_records": [
+    {
+      "relation": "mentioned_in_case",
+      "mapped_node": "cluster:66577",
+      "source_pair": [
+        "owner|PAGANO, JOHN E",
+        "owner|PAGANO, JOHN E. JR."
+      ],
+      "case_no": "DR-86-171246",
+      "caption": "JOHN E PAGANO SR v CAROL R PAGANO",
+      "reason": "both endpoints collapsed to one entity; excluded as a self-relationship"
+    },
+    {
+      "relation": "mentioned_in_case",
+      "mapped_node": "cluster:83593",
+      "source_pair": [
+        "owner|SOLDAN, DONALD M",
+        "owner|SOLDAN, DONALD M SR"
+      ],
+      "case_no": "DR-95-239952",
+      "caption": "DONALD M SOLDAN JR v LAURIE M SOLDAN",
+      "reason": "both endpoints collapsed to one entity; excluded as a self-relationship"
+    },
+    {
+      "relation": "divorced_from",
+      "mapped_node": "cluster:10557",
+      "source_pair": [
+        "owner|BROWN, JAMES",
+        "owner|BROWN, JAMES J."
+      ],
+      "case_no": "DR-15-355336",
+      "caption": "JAMES MARTIN BROWN JR. v JANET MARIE BROWN",
+      "reason": "both endpoints collapsed to one entity; excluded as a self-relationship"
+    }
+  ],
+  "unresolved_unresolved_social_edges": {
+    "divorced_from": 2,
+    "litigated_with": 181,
+    "married_to": 3,
+    "mentioned_in_case": 97
+  },
+  "represented_source_social_edges": 84940,
+  "resolved_social_clusters": 48304,
+  "direction_semantics": "transfer edges are directed grantor-to-grantee; social edges are stored once with directed=false and unordered endpoint semantics",
+  "outputs": {
+    "nodes": 83948,
+    "edges": 115140,
+    "transfer_edges": 30575,
+    "social_edges": 84565,
+    "graphml_nodes": 83948,
+    "graphml_edges": 115140
+  }
+}

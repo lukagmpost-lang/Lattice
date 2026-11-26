@@ -4,17 +4,31 @@ from pathlib import Path
 
 import networkx as nx
 
-PIVOT_PLANNER = Path(os.environ.get(
-    "PIVOT_PLANNER_DIR",
-    str(Path.home() / "Desktop" / "OSI" / "pivot-planner")
-))
-if str(PIVOT_PLANNER) not in sys.path:
-    sys.path.insert(0, str(PIVOT_PLANNER))
-
-from collector import Graph, collect_wikidata, collect_littlesis
-from scope_gate import check as scope_check
-from expand_lib import expand_graph
-from sibling_derive import derive_siblings
+def _load_pivot_planner():
+    pivot_planner = Path(os.environ.get(
+        "PIVOT_PLANNER_DIR",
+        str(Path.home() / "Desktop" / "OSI" / "pivot-planner")
+    ))
+    if not pivot_planner.is_dir():
+        raise RuntimeError(
+            "OSINT entity loading requires the pivot-planner dependencies, but "
+            f"'{pivot_planner}' does not exist. Set PIVOT_PLANNER_DIR to a "
+            "valid pivot-planner checkout."
+        )
+    if str(pivot_planner) not in sys.path:
+        sys.path.insert(0, str(pivot_planner))
+    try:
+        from collector import Graph, collect_wikidata, collect_littlesis
+        from scope_gate import check as scope_check
+        from expand_lib import expand_graph
+        from sibling_derive import derive_siblings
+    except ImportError as exc:
+        raise RuntimeError(
+            "OSINT entity loading requires collector, scope_gate, expand_lib, "
+            f"and sibling_derive from pivot-planner ('{pivot_planner}'). Set "
+            "PIVOT_PLANNER_DIR to a complete pivot-planner checkout."
+        ) from exc
+    return Graph, collect_wikidata, collect_littlesis, scope_check, expand_graph, derive_siblings
 
 _QID_RE = re.compile(r"^Q\d+$")
 
@@ -116,11 +130,6 @@ def _to_networkx(graph_dict, seed_qid=None, seed_attrs=None):
                 "wikipedia_corroborated": wiki_corroborated,
                 "weight": 1.0,
             }
-            if wiki_corroborated:
-                from ..confidence.adapter import edge_confidence
-                edge_attrs["confidence"] = edge_confidence(
-                    "wikipedia_corroborated", corroboration_count=2,
-                )
             G.add_edge(src, tgt, **edge_attrs)
     return G
 
@@ -130,6 +139,8 @@ def load_osint_entity(path, **options):
     query = cfg.get("query")
     if not query:
         raise ValueError(str(path) + " is missing 'query' field")
+
+    Graph, collect_wikidata, collect_littlesis, scope_check, expand_graph, derive_siblings = _load_pivot_planner()
 
     sources = cfg.get("sources", ["wikidata", "littlesis"])
     depth = int(cfg.get("depth", 2))

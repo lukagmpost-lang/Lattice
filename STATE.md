@@ -7,9 +7,9 @@ Cuyahoga County has a public land bank system and a dispersed private property m
 ## What was built
 
 - src/osi/loaders/cuyahoga.py — parcel fabric to bipartite graph (295,554 nodes)
-- src/osi/loaders/cuyahoga_transfers.py — deed history to transfer graph (840,940 nodes)
-- src/osi/lookup.py — find_person() front door, returns dossier with derived limits
-- analysis/cuyahoga/ — 14 scripts that produced the numbers below
+- src/osi/loaders/cuyahoga_transfers.py — last-transfer snapshot to provenance-preserving transfer graph
+- splink_graph_pipeline.py — refined Splink clusters, transaction-aware graph collapsing, and pruning
+- analysis/cuyahoga/ — active person-input and graph-merge scripts; older analysis scripts are under archive/resources/
 
 ## Findings
 
@@ -51,7 +51,7 @@ Note on name resolution: the full legal name is 9LYVES AUTO INVESTMENTS AND CONS
 - Parcel lifecycle beyond the last transfer (transfer source is a snapshot, one row per parcel)
 - Who controls the pipeline (LB board composition, disposition decisions, RFPs are public record but not loaded)
 - Whether specific co-mailer LLCs share control (requires deeds where those LLCs are the parties)
-- Whether owner strings with similar names are the same party (classifier has 5-8% error; resolver not deployed)
+- Whether LOW-confidence owner-string clusters represent the same party (Splink refinement is deployed; HIGH requires a shared DOB or voter ID)
 
 ## Corrections from this session
 
@@ -73,20 +73,20 @@ Five untraced claims were corrected. Candidate hypothesis to primary source to a
 ## Reproduce
 
 cd ~/Desktop/OSI/Open-Source-Intelligence
-python3 analysis/cuyahoga/s1.py    # LB inventory
-python3 analysis/cuyahoga/rc1.py   # hold/release rate
-python3 analysis/cuyahoga/rc2.py   # private-side sweep
-PYTHONPATH=src python3 -m osi.lookup "<OWNER NAME>"
+python3 archive/resources/cuyahoga_root/s1.py    # historical LB inventory
+python3 archive/resources/cuyahoga_root/rc1.py   # historical hold/release rate
+python3 archive/resources/cuyahoga_root/rc2.py   # historical private-side sweep
+.venv/bin/python splink_graph_pipeline.py --graph-input ~/Desktop/cuyahoga_transfers.pkl
+.venv/bin/python build_parcel_transfer_network.py
 
-Requires cuyahoga_unified.pkl, cuyahoga_transfers.pkl, and cuyahoga_transfers_raw.json on ~/Desktop/, produced by the loaders in src/osi/loaders/ and dl_transfers.py.
+Requires cuyahoga_unified.pkl, cuyahoga_transfers.pkl, and cuyahoga_transfers_raw.json on ~/Desktop/. See analysis/cuyahoga/README.md for the active rebuild commands and data limitations.
 
 ## What is not in the graph
 
 - Deed signatures (would pierce Delaware nominees)
 - Full parcel transfer history (would enable lifecycle)
 - Campaign finance (not loaded)
-- Court records (not loaded)
-- Voter file (not acquired, 7 dollars from BOE)
+- Court/voter coverage beyond the records already merged (loader code exists; this checklist does not measure current crawl coverage)
 - Out-of-county properties (Melissa Property API, paid)
 - Beneficial ownership (not publicly available for LLCs)
 - LB board membership and disposition decisions

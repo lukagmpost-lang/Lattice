@@ -52,7 +52,7 @@ import random
 import re
 import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -682,6 +682,19 @@ def prune_graph_preserve_chains(
         "original_nodes": int(graph.number_of_nodes()),
         "original_edges": int(graph.number_of_edges()),
     }
+    if graph.number_of_nodes() == 0:
+        stats.update(
+            {
+                "main_component_nodes": 0,
+                "cycles": 0,
+                "cycle_nodes": 0,
+                "path_nodes": 0,
+                "pruned_nodes": 0,
+                "pruned_edges": 0,
+                "removed_nodes": 0,
+            }
+        )
+        return graph.copy(), stats
 
     # Largest weakly connected component.
     wccs = nx.weakly_connected_components(graph)
@@ -747,32 +760,43 @@ def build_cluster_graph(
     cluster_confidences: dict[str, str] | None = None,
     only_resolved: bool = False,
 ) -> tuple[nx.DiGraph, dict[str, Any]]:
-    """Relabel person nodes to ``cluster:<id>`` and collapse parallel edges.
+    """Relabel owners and collapse edges without double-counting source deeds.
 
-    Unresolved endpoints keep their original node IDs so the graph remains a
-    county-wide ownership network.  Set ``only_resolved=True`` to drop edges
-    that do not involve a resolved person on at least one side.
+    New transfer graphs carry one provenance record per source transaction.
+    When several owner aliases collapse into one cluster pair, transaction IDs
+    deduplicate joint-party expansions.  Legacy graphs remain readable, but
+    their counts are aggregate estimates and are flagged in the returned stats.
+    Unresolved endpoints keep their original IDs unless ``only_resolved`` is
+    explicitly enabled.
     """
     cluster_labels = cluster_labels or {}
     cluster_confidences = cluster_confidences or {}
     cluster_sizes = Counter(node_to_cluster.values())
+    resolved_input_nodes = sum(
+        str(node) in node_to_cluster for node in graph.nodes()
+    )
     stats: dict[str, Any] = {
         "input_nodes": int(graph.number_of_nodes()),
         "input_edges": int(graph.number_of_edges()),
-        "resolved_nodes": len(node_to_cluster),
+        "resolution_mappings": len(node_to_cluster),
+        "resolved_nodes": int(resolved_input_nodes),
+        "unresolved_input_nodes": int(
+            graph.number_of_nodes() - resolved_input_nodes
+        ),
         "collapsed_self_loops": 0,
         "dropped_edges": 0,
+        "legacy_edges_without_transaction_ids": 0,
     }
 
     mapped: dict[str, str] = {}
     for node in graph.nodes():
         cluster_id = node_to_cluster.get(str(node))
-        if cluster_id is None:
-            mapped[node] = str(node)
-        else:
-            mapped[node] = f"cluster:{cluster_id}"
+        mapped[node] = (
+            str(node) if cluster_id is None else f"cluster:{cluster_id}"
+        )
 
     out = nx.DiGraph()
+    transactions_by_edge: dict[tuple[str, str], dict[str, dict]] = defaultdict(dict)
 
     def ensure_node(original: str, mapped_id: str) -> None:
         if mapped_id in out:
@@ -793,11 +817,28 @@ def build_cluster_graph(
                 label=cluster_labels.get(cluster_id, mapped_id),
                 resolved=True,
                 cluster_size=int(cluster_sizes.get(cluster_id, 0)),
-                confidence_level=str(
-                    cluster_confidences.get(cluster_id, "")
-                ),
+                confidence_level=str(cluster_confidences.get(cluster_id, "")),
                 kind="person_cluster",
             )
+
+    def ensure_edge(source: str, target: str, relation: str):
+        key = (source, target)
+        if key not in transactions_by_edge:
+            transactions_by_edge[key] = {}
+            out.add_edge(
+                source,
+                target,
+                weight=0.0,
+                party_pair_weight=0.0,
+                total_amount=0.0,
+                n_transactions=0.0,
+                first_date="",
+                last_date="",
+                book_pages=[],
+                transactions=[],
+                relation=relation,
+            )
+        return out[source][target]
 
     for source, target, attrs in graph.edges(data=True):
         source_mapped = mapped[source]
@@ -814,33 +855,82 @@ def build_cluster_graph(
         if source_mapped == target_mapped:
             stats["collapsed_self_loops"] += 1
 
+        key = (source_mapped, target_mapped)
+        relation = _as_text(attrs.get("relation")) or "transfer"
+        edge = ensure_edge(source_mapped, target_mapped, relation)
         weight = _as_float(attrs.get("weight"), default=1.0)
-        amount = _as_float(attrs.get("total_amount"), default=0.0)
+        edge["party_pair_weight"] += weight
+
+        raw_transactions = attrs.get("transactions")
+        has_transaction_ids = (
+            isinstance(raw_transactions, (list, tuple))
+            and bool(raw_transactions)
+            and all(
+                isinstance(item, dict) and _as_text(item.get("transaction_id"))
+                for item in raw_transactions
+            )
+        )
+        if has_transaction_ids:
+            for item in raw_transactions:
+                transaction_id = _as_text(item["transaction_id"])
+                transactions_by_edge[key].setdefault(transaction_id, dict(item))
+            continue
+
+        stats["legacy_edges_without_transaction_ids"] += 1
+        legacy_count = _as_float(
+            attrs.get("n_transactions"),
+            default=weight,
+        )
+        edge["weight"] += weight
+        edge["n_transactions"] += legacy_count
+        edge["total_amount"] += _as_float(
+            attrs.get("total_amount"), default=0.0
+        )
         first_date = _as_text(attrs.get("first_date"))
         last_date = _as_text(attrs.get("last_date"))
-        relation = _as_text(attrs.get("relation")) or "transfer"
+        if first_date and (
+            not edge["first_date"] or first_date < edge["first_date"]
+        ):
+            edge["first_date"] = first_date
+        if last_date and last_date > edge["last_date"]:
+            edge["last_date"] = last_date
+        book_pages = attrs.get("book_pages") or []
+        if isinstance(book_pages, (list, tuple)):
+            edge["book_pages"].extend(_as_text(value) for value in book_pages)
+        elif book_pages:
+            edge["book_pages"].append(_as_text(book_pages))
 
-        if out.has_edge(source_mapped, target_mapped):
-            edge = out[source_mapped][target_mapped]
-            edge["weight"] += weight
-            edge["total_amount"] += amount
-            edge["n_transactions"] += 1
-            if first_date:
-                edge["first_date"] = min(edge["first_date"], first_date)
-            if last_date:
-                edge["last_date"] = max(edge["last_date"], last_date)
-        else:
-            out.add_edge(
-                source_mapped,
-                target_mapped,
-                weight=weight,
-                total_amount=amount,
-                n_transactions=1,
-                first_date=first_date,
-                last_date=last_date,
-                relation=relation,
-            )
+    for (source, target), transactions in transactions_by_edge.items():
+        if not transactions:
+            continue
+        edge = out[source][target]
+        ordered = [transactions[key] for key in sorted(transactions)]
+        edge["transactions"] = ordered
+        edge["weight"] += len(ordered)
+        edge["n_transactions"] += len(ordered)
+        edge["total_amount"] += sum(
+            _as_float(item.get("amount"), default=0.0) for item in ordered
+        )
+        dates = [
+            _as_text(item.get("date"))
+            for item in ordered
+            if _as_text(item.get("date"))
+        ]
+        if dates:
+            if not edge["first_date"]:
+                edge["first_date"] = min(dates)
+            else:
+                edge["first_date"] = min(edge["first_date"], min(dates))
+            edge["last_date"] = max(edge["last_date"], max(dates))
+        edge["book_pages"].extend(
+            _as_text(item["book_page"])
+            for item in ordered
+            if _as_text(item.get("book_page"))
+        )
 
+    stats["transaction_provenance_complete"] = (
+        stats["legacy_edges_without_transaction_ids"] == 0
+    )
     stats["output_nodes"] = int(out.number_of_nodes())
     stats["output_edges"] = int(out.number_of_edges())
     return out, stats
@@ -1092,9 +1182,11 @@ def write_cluster_parquet(
 
 
 def load_graph(path: Path | None, *, demo: bool = False) -> nx.DiGraph:
-    if path is None or demo:
-        print("No usable graph input supplied; using the built-in sample graph.")
+    if demo:
+        print("Explicit --demo requested; using the built-in sample graph.")
         return create_sample_graph()
+    if path is None:
+        raise ValueError("graph input is required unless --demo is explicitly set")
     if not path.exists():
         raise FileNotFoundError(f"graph input not found: {path}")
     if path.suffix.lower() in {".pkl", ".pickle"}:
@@ -1413,8 +1505,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", default=str(DEFAULT_INPUT))
     parser.add_argument(
         "--graph-input",
-        default=str(DEFAULT_GRAPH) if DEFAULT_GRAPH.exists() else None,
-        help="pickled/GraphML/GEXF directed ownership graph",
+        default=str(DEFAULT_GRAPH),
+        help="pickled/GraphML/GEXF directed ownership graph (required unless --demo)",
     )
     parser.add_argument("--output-dir", default=".")
     parser.add_argument("--threshold", type=float, default=0.95)

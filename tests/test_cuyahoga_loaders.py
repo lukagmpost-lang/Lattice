@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 from pathlib import Path
 
 from osi.loaders import cuyahoga, cuyahoga_transfers
@@ -74,6 +75,80 @@ def test_transfer_graph_does_not_split_corporate_grantors():
     )
     assert set(graph.nodes) == {"owner|SMITH AND JONES LLC", "owner|JANE ROE"}
     assert graph.has_edge("owner|SMITH AND JONES LLC", "owner|JANE ROE")
+
+
+def test_transfer_ledger_preserves_joint_transaction_identity_and_provenance():
+    rows = [
+        {
+            "parcel_id": "P1",
+            "grantor": "JOHN SMITH & JANE ROE",
+            "grantee": "ACME LLC",
+            "last_transfer_date": 0,
+            "last_sales_amount": "60000",
+            "book_page": "B 1 P 1",
+        }
+    ]
+    transactions = list(cuyahoga_transfers.iter_transfer_transactions(rows))
+    graph, _ = cuyahoga_transfers.build_transfer_graph(rows)
+
+    assert len(transactions) == 1
+    assert graph.number_of_edges() == 2
+    for _, _, edge in graph.edges(data=True):
+        assert edge["weight"] == 1
+        assert edge["n_transactions"] == 1
+        assert edge["total_amount"] == 60000
+        assert edge["book_pages"] == ["B 1 P 1"]
+        assert edge["transactions"] == [
+            {
+                "transaction_id": transactions[0]["transaction_id"],
+                "source_row": 0,
+                "parcel_id": "P1",
+                "date": "1970-01-01",
+                "amount": 60000.0,
+                "book_page": "B 1 P 1",
+            }
+        ]
+
+
+def test_duplicate_book_page_on_another_parcel_remains_a_distinct_transaction():
+    base = {
+        "grantor": "JOHN SMITH",
+        "grantee": "JANE ROE",
+        "last_transfer_date": 0,
+        "last_sales_amount": 60000,
+        "book_page": "B 1 P 1",
+    }
+    rows = [{**base, "parcel_id": "P1"}, {**base, "parcel_id": "P2"}]
+    graph, _ = cuyahoga_transfers.build_transfer_graph(rows)
+
+    edge = graph["owner|JOHN SMITH"]["owner|JANE ROE"]
+    assert edge["n_transactions"] == 2
+    assert edge["weight"] == 2
+    assert edge["total_amount"] == 120000
+    assert edge["book_pages"] == ["B 1 P 1", "B 1 P 1"]
+    assert len({item["transaction_id"] for item in edge["transactions"]}) == 2
+    assert {item["parcel_id"] for item in edge["transactions"]} == {"P1", "P2"}
+
+
+def test_transfer_ownership_overlap_handles_in_degree_nodes(tmp_path):
+    import networkx as nx
+
+    graph, _ = cuyahoga_transfers.build_transfer_graph(
+        [{"grantor": "JOHN SMITH", "grantee": "JANE ROE"}]
+    )
+    ownership = nx.Graph()
+    ownership.add_node("owner|JANE ROE")
+    path = tmp_path / "ownership.pkl"
+    with path.open("wb") as handle:
+        pickle.dump(ownership, handle)
+
+    overlap = cuyahoga_transfers.overlap_with_ownership(graph, path)
+
+    assert overlap["available"] is True
+    assert overlap["grantors"] == 1
+    assert overlap["grantees"] == 1
+    assert overlap["transfer_nodes"] == 2
+    assert overlap["overlap"] == 1
 
 
 def test_module_import_has_no_side_effects(tmp_path, monkeypatch):

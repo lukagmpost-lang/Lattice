@@ -1,5 +1,10 @@
 # Findings
 
+Historical report: `compare.py` and `report.py`, cited below, are not present
+in the current checkout. Their printed outputs are preserved as provenance,
+not as runnable commands. Root-level Reddit scoring scripts have moved to
+`archive/resources/root_legacy/`.
+
 ## Finding 1: Modularity rose 72% (Reddit 2008 → 2012)
 
 Louvain modularity of the stored partition, weight `weight`:

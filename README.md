@@ -11,6 +11,7 @@ Local multi-layer graph of public social relations. Accounts are nodes, public r
 - `examples/simple.graphml` has four nodes in two communities. Alice and Bob are east, Carol and Dave are west, and the edge from Bob to Carol is the bridge.
 
 ```bash
+uv pip install -e .
 python3 main.py --source file --path examples/simple.csv --save-run simple-v1
 python3 -m osi.ask --run simple-v1 "top 5 by pagerank"
 ```
@@ -20,7 +21,7 @@ The same two commands work with `examples/simple.json` and `examples/simple.grap
 ## Web
 
 ```bash
-uv pip install -e '.[web,fast,dev]'
+uv pip install -e '.[web,fast,dev,production]'
 uvicorn osi.server:app --host 0.0.0.0 --port 7860
 ```
 
@@ -52,8 +53,12 @@ Private Telegram channels, gifts that are not displayed, and anonymous page scra
 ## Tests
 
 ```bash
+uv pip install -e '.[dev,production]'
 PYTHONPATH=src python3 -m pytest
 ```
+
+For the Cuyahoga pipelines without the development extras, install either
+`.[production]` or `requirements-production.txt`.
 
 ## LLM Provider
 
@@ -71,7 +76,7 @@ The default model is llama-3.3-70b-versatile. If you hit the 1,000 requests/day 
 
 **Result:** Stripping the top-100 hubs from Adamic-Adar's scoring graph improves its ranking of future subreddit-link pairs on the same candidate pool.
 
-**Setup:** 2,000-node non-hub universe, 2-hop candidate pool, three temporal splits. Reproducible via `hub0_check.py` (single verified result) and `sweep_fixed.py` (3-split × 5-cutoff robustness). Both run with `PYTHONHASHSEED=0` for deterministic tie-breaking. A hub=0 identity check confirms the two scorers collapse to bit-identical output when nothing is stripped (`Δ AP = 0.0000000000e+00`).
+**Setup:** 2,000-node non-hub universe, 2-hop candidate pool, three temporal splits. Reproducible via `archive/resources/root_legacy/hub0_check.py` (single verified result) and `archive/resources/root_legacy/sweep_fixed.py` (3-split × 5-cutoff robustness). Both run with `PYTHONHASHSEED=0` for deterministic tie-breaking. A hub=0 identity check confirms the two scorers collapse to bit-identical output when nothing is stripped (`Δ AP = 0.0000000000e+00`).
 
 ### Main result (2016-01-01, cutoff=100)
 
@@ -93,7 +98,7 @@ Cutoff 100 is the peak on every split — reproducible structure, not a lucky pi
 
 ### Mechanism (2016-01-01, cutoff 100)
 
-The two scoring graphs share only 38 of their top-100 predictions (see `diff_top100.py`, `inspect_top.py`):
+The two scoring graphs share only 38 of their top-100 predictions (see `archive/resources/root_legacy/diff_top100.py`, `archive/resources/root_legacy/inspect_top.py`):
 
 - 62 pairs unique to full scoring sit at the **99.4th percentile of endpoint degree**, hit at 16%.
 - 62 pairs unique to stripped scoring sit three percentile points lower, hit at **66%**.

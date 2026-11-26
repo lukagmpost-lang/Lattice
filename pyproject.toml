@@ -13,6 +13,16 @@ dependencies = [
 fast = ["igraph", "leidenalg", "numpy", "scipy"]
 web = ["fastapi", "uvicorn", "python-multipart", "pyvis", "matplotlib"]
 scrape = ["camoufox"]
+production = [
+    "pandas",
+    "pyarrow",
+    "duckdb",
+    "splink==5.0.0",
+    "tqdm",
+    "lxml",
+    "matplotlib",
+    "pyvis",
+]
 dev = ["pytest", "httpx"]
 
 [project.scripts]
